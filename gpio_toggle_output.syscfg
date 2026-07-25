@@ -1,9 +1,9 @@
 /**
  * These arguments were used when this file was generated. They will be automatically applied on subsequent loads
  * via the GUI or CLI. Run CLI with '--help' for additional information on how to override these arguments.
- * @cliArgs --device "MSPM0G350X" --part "Default" --package "LQFP-64(PM)" --product "mspm0_sdk@2.09.00.01"
- * @v2CliArgs --device "MSPM0G3507" --package "LQFP-64(PM)" --product "mspm0_sdk@2.09.00.01"
- * @versions {"tool":"1.26.0"}
+ * @cliArgs --device "MSPM0G350X" --part "Default" --package "LQFP-64(PM)" --product "mspm0_sdk@2.09.00.00"
+ * @v2CliArgs --device "MSPM0G3507" --package "LQFP-64(PM)" --product "mspm0_sdk@2.09.00.00"
+ * @versions {"tool":"1.26.0+4407"}
  */
 
 /**
@@ -122,11 +122,9 @@ GPIO5.associatedPins[4].$name       = "MISO";
 GPIO5.associatedPins[4].direction   = "INPUT";
 GPIO5.associatedPins[4].pin.$assign = "PB9";
 
-GPIO6.$name                                = "BUZZER";
-GPIO6.associatedPins[0].$name              = "BUZZER_PIN";
-GPIO6.associatedPins[0].direction          = "OUTPUT";
-GPIO6.associatedPins[0].initialValue       = "SET";
-GPIO6.associatedPins[0].pin.$assign        = "PB11";
+GPIO6.$name                         = "BUZZER";
+GPIO6.associatedPins[0].$name       = "BUZZER_PIN";
+GPIO6.associatedPins[0].pin.$assign = "PB11";
 
 I2C1.basicEnableController             = true;
 I2C1.basicControllerStandardBusSpeed   = "Fast";

@@ -1,7 +1,7 @@
 /*
- * buzzer.c — 蜂鸣器驱动实现（低电平触发）
+ * buzzer.c — 蜂鸣器驱动实现（高电平触发）
  *
- * PB11 输出: 0=蜂鸣响, 1=停止
+ * PB11 输出: 1=蜂鸣响, 0=停止
  * 自动关闭基于全局 tick_ms（clock.h），无需额外硬件定时器。
  */
 
@@ -17,8 +17,8 @@ static volatile unsigned long s_beepStartTick = 0U;
 
 void Buzzer_Init(void)
 {
-    /* 引脚由 SYSCFG_DL_init() 初始化；高电平确保低电平触发蜂鸣器保持关闭。 */
-    DL_GPIO_setPins(BUZZER_PORT, BUZZER_BUZZER_PIN_PIN);
+    /* 引脚由 SYSCFG_DL_init() 初始化；低电平确保高电平触发蜂鸣器保持关闭。 */
+    DL_GPIO_clearPins(BUZZER_PORT, BUZZER_BUZZER_PIN_PIN);
 
     s_beepRemainMs  = 0U;
     s_beepStartTick = 0U;
@@ -26,12 +26,12 @@ void Buzzer_Init(void)
 
 void Buzzer_On(void)
 {
-    DL_GPIO_clearPins(BUZZER_PORT, BUZZER_BUZZER_PIN_PIN);
+    DL_GPIO_setPins(BUZZER_PORT, BUZZER_BUZZER_PIN_PIN);
 }
 
 void Buzzer_Off(void)
 {
-    DL_GPIO_setPins(BUZZER_PORT, BUZZER_BUZZER_PIN_PIN);
+    DL_GPIO_clearPins(BUZZER_PORT, BUZZER_BUZZER_PIN_PIN);
     s_beepRemainMs  = 0U;
     s_beepStartTick = 0U;
 }

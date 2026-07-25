@@ -1,5 +1,5 @@
 /*
- * buzzer.h — 蜂鸣器驱动（低电平触发）
+ * buzzer.h — 蜂鸣器驱动（高电平触发）
  *
  * 引脚: PB11 (SysConfig BUZZER 组)
  *
