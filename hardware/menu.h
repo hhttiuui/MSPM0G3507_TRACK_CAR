@@ -27,7 +27,7 @@ typedef enum {
     PAGE_MODE_CONFIG,       /* 某 mode 的 PID 组选择 */
     PAGE_PID_EDIT,          /* PID 参数编辑页（选/编 状态机） */
     PAGE_NR02_DBG,          /* 2.4G 无线调试 */
-    PAGE_BUZZER_DBG,        /* 蜂鸣器调试 */
+    PAGE_OTHERS,            /* 蜂鸣器 / 磁铁 / LED 调试 */
 } MenuPage;
 
 /* ---- PID 组（用于 MODE_CONFIG 页） ---- */

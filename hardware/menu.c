@@ -46,8 +46,10 @@ static volatile uint8_t s_saveOkFrames = 0U;
 /* NR02 调试：待发送数据字节 */
 static volatile uint8_t s_nr02TxData = 0U;
 
-/* BUZZER 调试：开关状态 */
-static volatile uint8_t s_buzzerOn = 0U;
+/* OTHERS 调试：开关状态 */
+static volatile uint8_t s_buzzerOn  = 0U;
+static volatile uint8_t s_magnetOn  = 0U;
+static volatile uint8_t s_ledOn     = 0U;
 
 
 /* OLED 8x8 字体，每行 16 字符，共 8 行（0~7） */
@@ -193,7 +195,7 @@ static void DrawMain(void)
 static void DrawConfig(void)
 {
     uint8_t i;
-    const char *items[6] = {"MODE1", "MODE2", "MODE3", "MODE4", "NR02_DBG", "BUZZER"};
+    const char *items[6] = {"MODE1", "MODE2", "MODE3", "MODE4", "NR02_DBG", "OTHERS"};
 
     OLED_ShowString(0, 0, (uint8_t *)"CONFIG", OLED_FONT_H);
 
@@ -342,15 +344,27 @@ static void DrawDataShow(void)
     OLED_ShowString(0, 7, (uint8_t *)s_buf, OLED_FONT_H);
 }
 
-static void DrawBuzzerDbg(void)
+static void DrawOthers(void)
 {
-    char cursorCh = (s_pidState == PID_STATE_EDIT) ? '-' : '>';
+    OLED_ShowString(0, 0, (uint8_t *)"OTHERS", OLED_FONT_H);
 
-    OLED_ShowString(0, 0, (uint8_t *)"BUZZER", OLED_FONT_H);
-
-    /* Row 1: ON/OFF 开关 */
-    sprintf(s_buf, "%c%s", cursorCh, s_buzzerOn ? "ON " : "OFF");
+    /* Row 1: BUZZER */
+    sprintf(s_buf, "%cBUZZER:%s",
+            (s_cursor == 1U) ? '>' : ' ',
+            s_buzzerOn ? "ON " : "OFF");
     OLED_ShowString(0, 1, (uint8_t *)s_buf, OLED_FONT_H);
+
+    /* Row 2: MAGNET */
+    sprintf(s_buf, "%cMAGNET:%s",
+            (s_cursor == 2U) ? '>' : ' ',
+            s_magnetOn ? "ON " : "OFF");
+    OLED_ShowString(0, 2, (uint8_t *)s_buf, OLED_FONT_H);
+
+    /* Row 3: LED */
+    sprintf(s_buf, "%cLED:%s",
+            (s_cursor == 3U) ? '>' : ' ',
+            s_ledOn ? "ON " : "OFF");
+    OLED_ShowString(0, 3, (uint8_t *)s_buf, OLED_FONT_H);
 
     OLED_ShowString(0, 7, (uint8_t *)"MADE_BY->hhttiuui", OLED_FONT_H);
 }
@@ -440,7 +454,7 @@ static void Config_OnConfirm(void)
         s_cursor = 1U;
         s_pidState = PID_STATE_SEL;
     } else {
-        s_page   = PAGE_BUZZER_DBG;
+        s_page   = PAGE_OTHERS;
         s_cursor = 1U;
         s_pidState = PID_STATE_SEL;
     }
@@ -521,7 +535,7 @@ void Menu_HandleKeys(void)
             s_page = PAGE_CONFIG;       s_cursor = g_menuMode;
         } else if (s_page == PAGE_NR02_DBG) {
             s_page = PAGE_CONFIG;       s_cursor = 5U;
-        } else if (s_page == PAGE_BUZZER_DBG) {
+        } else if (s_page == PAGE_OTHERS) {
             s_page = PAGE_CONFIG;       s_cursor = 6U;
         } else {
             s_page = PAGE_MAIN;         s_cursor = 1U;
@@ -670,14 +684,24 @@ void Menu_HandleKeys(void)
             }
             break;
 
-        case PAGE_BUZZER_DBG:
-            /* ON/OFF 开关切换 */
-            if (key == KEY3_PRES) {
-                s_buzzerOn = s_buzzerOn ? 0U : 1U;
-                if (s_buzzerOn) {
-                    Buzzer_On();
+        case PAGE_OTHERS:
+            if (key == KEY2_PRES) {
+                if (s_cursor > 1U) s_cursor--; else s_cursor = 3U;
+                OLED_Clear();
+            } else if (key == KEY4_PRES) {
+                if (s_cursor < 3U) s_cursor++; else s_cursor = 1U;
+                OLED_Clear();
+            } else if (key == KEY3_PRES) {
+                /* 切换当前选中项 */
+                if (s_cursor == 1U) {
+                    s_buzzerOn = s_buzzerOn ? 0U : 1U;
+                    if (s_buzzerOn) Buzzer_On(); else Buzzer_Off();
+                } else if (s_cursor == 2U) {
+                    s_magnetOn = s_magnetOn ? 0U : 1U;
+                    if (s_magnetOn) Magnet_On(); else Magnet_Off();
                 } else {
-                    Buzzer_Off();
+                    s_ledOn = s_ledOn ? 0U : 1U;
+                    if (s_ledOn) LED_On(); else LED_Off();
                 }
                 OLED_Clear();
             }
@@ -781,7 +805,7 @@ void Menu_Draw(void)
         case PAGE_MODE:        DrawMode();       break;
         case PAGE_DATA_SHOW:   DrawDataShow();   break;
         case PAGE_NR02_DBG:    DrawNR02Dbg();    break;
-        case PAGE_BUZZER_DBG:  DrawBuzzerDbg();  break;
+        case PAGE_OTHERS:      DrawOthers();     break;
         case PAGE_PID_EDIT:    DrawPidEdit();    break;
     }
 

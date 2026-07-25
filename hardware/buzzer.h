@@ -1,7 +1,10 @@
 /*
- * buzzer.h — 蜂鸣器驱动（高电平触发）
+ * buzzer.h — 蜂鸣器 / 磁铁 / LED 驱动
  *
- * 引脚: PB11 (SysConfig BUZZER 组)
+ * 引脚（SysConfig）：
+ *   BUZZER — PB11  高电平触发蜂鸣
+ *   CITIE  — PA10  高电平磁铁有磁力
+ *   LED    — PA7   高电平 LED 亮
  *
  * Buzzer_Task() 需在主循环或定时中断中周期调用以管理自动关闭计时。
  */
@@ -10,6 +13,8 @@
 #define __BUZZER_H
 
 #include <stdint.h>
+
+/* ========== 蜂鸣器 ========== */
 
 /* ---- 初始化 ---- */
 void Buzzer_Init(void);
@@ -32,5 +37,13 @@ uint8_t Buzzer_IsBeeping(void);
  * 直接使用全局 tick_ms，无需专用定时器。
  */
 void Buzzer_Task(void);
+
+/* ========== 磁铁 ========== */
+void Magnet_On(void);
+void Magnet_Off(void);
+
+/* ========== LED ========== */
+void LED_On(void);
+void LED_Off(void);
 
 #endif /* __BUZZER_H */
