@@ -18,6 +18,7 @@
 #include "param_storage.h"
 #include "top_zhengfangxing.h"
 #include "si24r1.h"
+#include "buzzer.h"
 #include <stdio.h>
 
 /* ---- 全局标志位定义 ---- */
@@ -44,6 +45,9 @@ static volatile uint8_t s_saveOkFrames = 0U;
 
 /* NR02 调试：待发送数据字节 */
 static volatile uint8_t s_nr02TxData = 0U;
+
+/* BUZZER 调试：开关状态 */
+static volatile uint8_t s_buzzerOn = 0U;
 
 
 /* OLED 8x8 字体，每行 16 字符，共 8 行（0~7） */
@@ -189,11 +193,11 @@ static void DrawMain(void)
 static void DrawConfig(void)
 {
     uint8_t i;
-    const char *items[5] = {"MODE1", "MODE2", "MODE3", "MODE4", "NR02_DBG"};
+    const char *items[6] = {"MODE1", "MODE2", "MODE3", "MODE4", "NR02_DBG", "BUZZER"};
 
     OLED_ShowString(0, 0, (uint8_t *)"CONFIG", OLED_FONT_H);
 
-    for (i = 1U; i <= 5U; i++) {
+    for (i = 1U; i <= 6U; i++) {
         sprintf(s_buf, "%c%s", (s_cursor == i) ? '>' : ' ', items[i - 1U]);
         OLED_ShowString(0, i, (uint8_t *)s_buf, OLED_FONT_H);
     }
@@ -338,6 +342,19 @@ static void DrawDataShow(void)
     OLED_ShowString(0, 7, (uint8_t *)s_buf, OLED_FONT_H);
 }
 
+static void DrawBuzzerDbg(void)
+{
+    char cursorCh = (s_pidState == PID_STATE_EDIT) ? '-' : '>';
+
+    OLED_ShowString(0, 0, (uint8_t *)"BUZZER", OLED_FONT_H);
+
+    /* Row 1: ON/OFF 开关 */
+    sprintf(s_buf, "%c%s", cursorCh, s_buzzerOn ? "ON " : "OFF");
+    OLED_ShowString(0, 1, (uint8_t *)s_buf, OLED_FONT_H);
+
+    OLED_ShowString(0, 7, (uint8_t *)"MADE_BY->hhttiuui", OLED_FONT_H);
+}
+
 static void DrawNR02Dbg(void)
 {
     char cursorCh = (s_pidState == PID_STATE_EDIT) ? '-' : '>';
@@ -418,8 +435,12 @@ static void Config_OnConfirm(void)
         s_page     = PAGE_MODE_CONFIG;
         s_cursor   = 1U;
         s_pidState = PID_STATE_SEL;
-    } else {
+    } else if (s_cursor == 5U) {
         s_page   = PAGE_NR02_DBG;
+        s_cursor = 1U;
+        s_pidState = PID_STATE_SEL;
+    } else {
+        s_page   = PAGE_BUZZER_DBG;
         s_cursor = 1U;
         s_pidState = PID_STATE_SEL;
     }
@@ -500,6 +521,8 @@ void Menu_HandleKeys(void)
             s_page = PAGE_CONFIG;       s_cursor = g_menuMode;
         } else if (s_page == PAGE_NR02_DBG) {
             s_page = PAGE_CONFIG;       s_cursor = 5U;
+        } else if (s_page == PAGE_BUZZER_DBG) {
+            s_page = PAGE_CONFIG;       s_cursor = 6U;
         } else {
             s_page = PAGE_MAIN;         s_cursor = 1U;
         }
@@ -525,10 +548,10 @@ void Menu_HandleKeys(void)
 
         case PAGE_CONFIG:
             if (key == KEY2_PRES) {
-                if (s_cursor > 1U) s_cursor--; else s_cursor = 5U;
+                if (s_cursor > 1U) s_cursor--; else s_cursor = 6U;
                 OLED_Clear();
             } else if (key == KEY4_PRES) {
-                if (s_cursor < 5U) s_cursor++; else s_cursor = 1U;
+                if (s_cursor < 6U) s_cursor++; else s_cursor = 1U;
                 OLED_Clear();
             } else if (key == KEY3_PRES) {
                 Config_OnConfirm();
@@ -647,6 +670,19 @@ void Menu_HandleKeys(void)
             }
             break;
 
+        case PAGE_BUZZER_DBG:
+            /* ON/OFF 开关切换 */
+            if (key == KEY3_PRES) {
+                s_buzzerOn = s_buzzerOn ? 0U : 1U;
+                if (s_buzzerOn) {
+                    Buzzer_On();
+                } else {
+                    Buzzer_Off();
+                }
+                OLED_Clear();
+            }
+            break;
+
         case PAGE_NR02_DBG:
             /* T_DATA 编辑态 */
             if (s_cursor == 1U && s_pidState == PID_STATE_EDIT) {
@@ -745,6 +781,7 @@ void Menu_Draw(void)
         case PAGE_MODE:        DrawMode();       break;
         case PAGE_DATA_SHOW:   DrawDataShow();   break;
         case PAGE_NR02_DBG:    DrawNR02Dbg();    break;
+        case PAGE_BUZZER_DBG:  DrawBuzzerDbg();  break;
         case PAGE_PID_EDIT:    DrawPidEdit();    break;
     }
 
