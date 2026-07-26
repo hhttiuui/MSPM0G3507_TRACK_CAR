@@ -58,7 +58,6 @@ void Mode2_Task(void)
     /* 首次调用时初始化 */
     if (!SpeedControl_IsRunning()) {
         int16_t baseSpd = g_modeParams[g_menuMode - 1U].trackBaseSpeed;
-        Track_Init();
         TrackSquare_Init();
         s_finishBeeped = 0U;
         if (!SpeedControl_SetTargets(baseSpd, baseSpd)) {

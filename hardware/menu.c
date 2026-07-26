@@ -544,6 +544,7 @@ void Menu_HandleKeys(void)
     /* ===== 全局 KEY1=返回：链式回到对应上级 ===== */
     if (key == KEY1_PRES && s_page != PAGE_MAIN) {
         if (s_page == PAGE_PID_EDIT) {
+            Param_ApplyMode(g_menuMode);
             s_page = PAGE_MODE_CONFIG;  s_cursor = 1U;
         } else if (s_page == PAGE_MODE_CONFIG) {
             s_page = PAGE_CONFIG;       s_cursor = g_menuMode;

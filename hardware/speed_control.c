@@ -98,38 +98,28 @@ static void SpeedControl_GetEffectiveTargets(
 /* ==================== V2 前馈与 PID ==================== */
 
 /*
- * 正向前馈由 Target 8~20 的地面稳态数据拟合得到。
- * Target 8 以下从零线性过渡，20 以上不再外推；倒车暂不使用前馈。
+ * 正向前馈 = FF_GAIN × target。
+ * target 超过 FF_MAX_TARGET 时截断；倒车不用前馈。
  * 前馈最多占输出上限的 75%，为 PI 修正保留余量。
  */
 static int32_t SpeedControl_CalculateFeedforward(float target)
 {
-    float absoluteTarget;
     float magnitude;
-    float minimumLinearOutput;
-    float maximumFeedforward;
 
     if (target <= 0.0f) {
         return 0;
     }
 
-    absoluteTarget = (target > (float)SPEED_FF_MAX_TARGET) ?
-        (float)SPEED_FF_MAX_TARGET : (float)target;
-    minimumLinearOutput =
-        SPEED_FF_OFFSET + SPEED_FF_GAIN * (float)SPEED_FF_LINEAR_TARGET;
-
-    if (absoluteTarget < (float)SPEED_FF_LINEAR_TARGET) {
-        magnitude = minimumLinearOutput * absoluteTarget /
-                    (float)SPEED_FF_LINEAR_TARGET;
-    } else {
-        magnitude = SPEED_FF_OFFSET + SPEED_FF_GAIN * absoluteTarget;
+    if (target > (float)SPEED_FF_MAX_TARGET) {
+        target = (float)SPEED_FF_MAX_TARGET;
     }
 
-    maximumFeedforward =
-        (float)g_speedPidOutLimit * (float)SPEED_FF_MAX_PERMILLE /
-        (float)SPEED_TRIM_SCALE_BASE;
+    magnitude = SPEED_FF_GAIN * target;
+
     magnitude = SpeedControl_ClampFloat(
-        magnitude, 0.0f, maximumFeedforward);
+        magnitude, 0.0f,
+        (float)g_speedPidOutLimit * (float)SPEED_FF_MAX_PERMILLE /
+        (float)SPEED_TRIM_SCALE_BASE);
 
     return (int32_t)(magnitude + 0.5f);
 }
