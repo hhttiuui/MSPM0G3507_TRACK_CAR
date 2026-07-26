@@ -60,6 +60,7 @@ extern volatile uint8_t g_menuResetFlag;   /* 复位标志 */
 
 /* ---- NR02 调试（供 menu.c 读取） ---- */
 extern volatile uint8_t g_nr02RxData;      /* 最近收到的无线数据 */
+extern volatile uint8_t g_gyroOk;           /* 陀螺仪初始化完成标志 */
 
 /* ---- 菜单公开 API ---- */
 void Menu_Init(void);

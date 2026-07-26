@@ -14,6 +14,7 @@
 #include "param_storage.h"
 #include "top_zhengfangxing.h"
 #include "buzzer.h"
+#include "IMU660RB/imu660rb.h"
 
 /* 循迹 UART 数据字节（gpio_toggle_output.c 中定义） */
 extern volatile uint8_t gRxByte;
@@ -106,10 +107,11 @@ void Mode4_Task(void)
  */
 void ModeExecTask(void)
 {
-    /* ---- RESET 优先：立即急停 ---- */
+    /* ---- RESET 优先：立即急停 + 陀螺仪复位 ---- */
     if (g_menuResetFlag) {
         HeadingControl_Stop();
         SpeedControl_Stop();
+        FusionAhrsReset(&ahrs);
         g_menuStartFlag = 0U;
         g_menuResetFlag = 0U;
         s_running       = 0U;

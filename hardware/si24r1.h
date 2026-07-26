@@ -74,4 +74,8 @@ uint8_t Si24R1_RxPacket(uint8_t *rxbuf);
 void RF_RX_Init(void);
 void RF_TX_Init(void);
 
+/* ---- 频段设置 ---- */
+void    Si24R1_SetChannel(uint8_t ch);
+uint8_t Si24R1_GetChannel(void);
+
 #endif /* __SI24R1_H */

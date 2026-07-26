@@ -184,7 +184,7 @@ void Si24R1_Init(void)
     Si24R1_Write_Reg(NRF_WRITE_REG + EN_AA, 0x01U);        /* 使能自动应答（通道 0） */
     Si24R1_Write_Reg(NRF_WRITE_REG + EN_RXADDR, 0x01U);   /* 使能通道 0 接收地址 */
     Si24R1_Write_Reg(NRF_WRITE_REG + SETUP_RETR, 0x03U);  /* 250us 重发间隔，自动重发 3 次 */
-    Si24R1_Write_Reg(NRF_WRITE_REG + RF_CH, 2U);           /* 2402 MHz */
+    Si24R1_Write_Reg(NRF_WRITE_REG + RF_CH, 26U);           /* 2426 MHz，默认频段 */
     Si24R1_Write_Reg(NRF_WRITE_REG + RF_SETUP, 0x0FU);    /* 2 Mbps, 7 dBm */
     Si24R1_Write_Reg(NRF_WRITE_REG + CONFIG, 0x0FU);      /* PWR_UP, EN_CRC, 16BIT_CRC, RX 模式 */
     NR02_CE_HIGH();
@@ -206,4 +206,20 @@ void RF_TX_Init(void)
     SW_SPI_Init();
     Si24R1_Init();
     Si24R1_TX_Mode();
+}
+
+/* ================================================================
+ *  频段设置（菜单通过 RF_CH 寄存器 0~125 调整）
+ * ================================================================ */
+
+void Si24R1_SetChannel(uint8_t ch)
+{
+    if (ch <= 125U) {
+        Si24R1_Write_Reg(NRF_WRITE_REG + RF_CH, ch);
+    }
+}
+
+uint8_t Si24R1_GetChannel(void)
+{
+    return Si24R1_Read_Reg(RF_CH);
 }

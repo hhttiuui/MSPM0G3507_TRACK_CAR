@@ -25,6 +25,7 @@
 volatile uint8_t g_menuMode       = 1U;
 volatile uint8_t g_menuStartFlag  = 0U;
 volatile uint8_t g_menuResetFlag  = 0U;
+volatile uint8_t g_gyroOk         = 1U;  /* 上电时默认可为 OK，由菜单 RESET 触发清零 */
 
 /* ---- 循迹串口字节（引用自主程序） ---- */
 extern volatile uint8_t gRxByte;
@@ -44,7 +45,8 @@ static volatile PidEditState s_pidState   = PID_STATE_SEL;
 static volatile uint8_t s_saveOkFrames = 0U;
 
 /* NR02 调试：待发送数据字节 */
-static volatile uint8_t s_nr02TxData = 0U;
+static volatile uint8_t s_nr02TxData   = 0U;
+static volatile uint8_t s_nr02FreqCh   = 26U;  /* 频段 0~125，默认 26 */
 
 /* OTHERS 调试：开关状态 */
 static volatile uint8_t s_buzzerOn  = 0U;
@@ -182,6 +184,13 @@ static void DrawMain(void)
         if (i == 3U) {
             /* MODE:X 行：显示当前模式号 */
             sprintf(s_buf, "%cMODE:%s", prefix, Mode_Name(g_menuMode));
+            OLED_ShowString(0, i, (uint8_t *)s_buf, OLED_FONT_H);
+        } else if (i == 5U) {
+            /* RESET 行：陀螺仪初始化完成后显示 OK */
+            if (g_gyroOk == 0U && !ahrs.initialising) {
+                g_gyroOk = 1U;
+            }
+            sprintf(s_buf, "%cRESET%s", prefix, g_gyroOk ? " OK" : "");
             OLED_ShowString(0, i, (uint8_t *)s_buf, OLED_FONT_H);
         } else {
             sprintf(s_buf, "%c%s", prefix, label);
@@ -388,6 +397,11 @@ static void DrawNR02Dbg(void)
     sprintf(s_buf, "%cTRANSMIT", (s_cursor == 3U) ? '>' : ' ');
     OLED_ShowString(0, 3, (uint8_t *)s_buf, OLED_FONT_H);
 
+    /* Row 4: FREQ:x (0~125) */
+    sprintf(s_buf, "%cFREQ:    %3d",
+            (s_cursor == 4U) ? cursorCh : ' ', (int)s_nr02FreqCh);
+    OLED_ShowString(0, 4, (uint8_t *)s_buf, OLED_FONT_H);
+
     OLED_ShowString(0, 7, (uint8_t *)"MADE_BY->hhttiuui", OLED_FONT_H);
 }
 
@@ -437,7 +451,7 @@ static void Main_OnConfirm(void)
         case 2U: s_page = PAGE_DATA_SHOW;  s_cursor = 1U; s_dataPage = 0U; break;
         case 3U: s_page = PAGE_MODE;       s_cursor = 1U; break;
         case 4U: g_menuStartFlag = 1U; g_menuResetFlag = 0U; break;
-        case 5U: g_menuResetFlag = 1U; g_menuStartFlag = 0U; break;
+        case 5U: g_menuResetFlag = 1U; g_menuStartFlag = 0U; g_gyroOk = 0U; break;
         default: break;
     }
 }
@@ -723,6 +737,25 @@ void Menu_HandleKeys(void)
             } else if (s_cursor == 1U && key == KEY3_PRES) {
                 s_pidState = PID_STATE_EDIT;
                 OLED_Clear();
+
+            /* FREQ 编辑态 */
+            } else if (s_cursor == 4U && s_pidState == PID_STATE_EDIT) {
+                if (key == KEY2_PRES) {
+                    if (s_nr02FreqCh < 125U) s_nr02FreqCh++;
+                    OLED_Clear();
+                } else if (key == KEY4_PRES) {
+                    if (s_nr02FreqCh > 0U) s_nr02FreqCh--;
+                    OLED_Clear();
+                } else if (key == KEY3_PRES || key == KEY1_PRES) {
+                    /* 退出编辑 → 自动写入模块 */
+                    s_pidState = PID_STATE_SEL;
+                    Si24R1_SetChannel(s_nr02FreqCh);
+                    OLED_Clear();
+                }
+            } else if (s_cursor == 4U && key == KEY3_PRES) {
+                s_pidState = PID_STATE_EDIT;
+                OLED_Clear();
+
             } else if (s_cursor == 3U && key == KEY3_PRES) {
                 /* 发送当前数据 */
                 uint8_t txBuf[32] = {0};
@@ -730,10 +763,10 @@ void Menu_HandleKeys(void)
                 Si24R1_TxPacket(txBuf);
                 OLED_Clear();
             } else if (key == KEY2_PRES) {
-                if (s_cursor > 1U) s_cursor--; else s_cursor = 3U;
+                if (s_cursor > 1U) s_cursor--; else s_cursor = 4U;
                 OLED_Clear();
             } else if (key == KEY4_PRES) {
-                if (s_cursor < 3U) s_cursor++; else s_cursor = 1U;
+                if (s_cursor < 4U) s_cursor++; else s_cursor = 1U;
                 OLED_Clear();
             }
             break;
