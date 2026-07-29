@@ -23,6 +23,7 @@
 #include "param_storage.h"
 #include "si24r1.h"
 #include "buzzer.h"
+#include "servo.h"
 
 /* ==================== 主程序状态 ==================== */
 
@@ -134,6 +135,7 @@ void UART_0_INST_IRQHandler(void)
 int main(void)
 {
     SYSCFG_DL_init();
+    Servo_Init();
     SysTick_Init();
 
     /*
