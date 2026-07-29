@@ -40,10 +40,6 @@ static const ModeParams s_defaultParams = {
     .trackOutMax    = 15.0f,
     .trackIMax      = 30.0f,
     .trackBaseSpeed = 12,
-    .trackTurnSpeed = 6,
-    .entryEnable    = 0,        /* 默认关闭 */
-    .entryThreshold = 200,      /* 默认 200 脉冲 */
-    .stopAfterTurns = 0,        /* 0 = 不限制 */
     /* 角度环 PID 默认值 */
     .servoKp        = 2.0f,
     .servoKi        = 0.1f,
