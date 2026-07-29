@@ -236,7 +236,7 @@ static void DrawConfig(void)
 static void DrawModeConfig(void)
 {
     uint8_t i;
-    uint8_t itemCount = (g_menuMode == 1U) ? 4U : 3U;
+    uint8_t itemCount = (g_menuMode <= 2U) ? 4U : 3U;
     const char *items[4] = {"SERVO_PID", "TRACK_PID", "SPEED_PID", "STOP_DIST"};
 
     sprintf(s_buf, "M%d_CFG", (int)g_menuMode);
@@ -244,7 +244,7 @@ static void DrawModeConfig(void)
 
     for (i = 0U; i < itemCount; i++) {
         uint8_t row = i + 1U;
-        if (g_menuMode == 1U && i == 3U) {
+        if (g_menuMode <= 2U && i == 3U) {
             /* MODE1 第 4 行：STOP_DIST:xxxxx */
             ModeParams *p = &g_modeParams[g_menuMode - 1U];
             uint8_t editing = (s_cursor == row && s_pidState == PID_STATE_EDIT) ? 1U : 0U;
@@ -554,10 +554,10 @@ void Menu_HandleKeys(void)
 
         case PAGE_MODE_CONFIG:
             {
-                uint8_t maxCursor = (g_menuMode == 1U) ? 4U : 3U;
+                uint8_t maxCursor = (g_menuMode <= 2U) ? 4U : 3U;
 
                 /* MODE1 第 4 行 STOP_DIST 编辑态 */
-                if (g_menuMode == 1U && s_cursor == 4U && s_pidState == PID_STATE_EDIT) {
+                if (g_menuMode <= 2U && s_cursor == 4U && s_pidState == PID_STATE_EDIT) {
                     uint8_t k2_long = Key_ReadLongPress(KEY_ID_2);
                     uint8_t k4_long = Key_ReadLongPress(KEY_ID_4);
                     ModeParams *p = &g_modeParams[g_menuMode - 1U];
@@ -585,7 +585,7 @@ void Menu_HandleKeys(void)
                     if (s_cursor < maxCursor) s_cursor++; else s_cursor = 1U;
                     OLED_Clear();
                 } else if (key == KEY3_PRES) {
-                    if (g_menuMode == 1U && s_cursor == 4U) {
+                    if (g_menuMode <= 2U && s_cursor == 4U) {
                         s_pidState = PID_STATE_EDIT;
                         OLED_Clear();
                     } else {

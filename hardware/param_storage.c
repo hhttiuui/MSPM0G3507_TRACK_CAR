@@ -41,7 +41,7 @@ static const ModeParams s_defaultParams = {
     .trackIMax      = 30.0f,
     .trackBaseSpeed = 12,
     .speedBaseSpeed = 18,
-    .stopDistance   = 7200,
+    .stopDistance   = 12300,
     /* 角度环 PID 默认值 */
     .servoKp        = 2.0f,
     .servoKi        = 0.1f,
@@ -93,6 +93,7 @@ static void Param_SetDefaults(void)
     for (uint8_t m = 0; m < PARAM_MODE_COUNT; m++) {
         g_modeParams[m] = s_defaultParams;
     }
+    g_modeParams[1].stopDistance = 2700;   /* MODE2 定距停止默认 2700 */
 }
 
 /* ---- 公开 API ---- */

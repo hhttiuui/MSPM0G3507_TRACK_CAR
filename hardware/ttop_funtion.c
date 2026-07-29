@@ -74,7 +74,52 @@ void Mode1_Task(void)
 
 void Mode2_Task(void)
 {
-    /* TODO: MODE2 具体逻辑 */
+    /* 10ms 分频计数 */
+    static uint8_t s_divider = 0U;
+
+    /* 首次调用时初始化 */
+    if (!SpeedControl_IsRunning()) {
+        int16_t baseSpd = g_modeParams[g_menuMode - 1U].trackBaseSpeed;
+        if (!SpeedControl_SetTargets(baseSpd, baseSpd)) {
+            return;
+        }
+        if (!SpeedControl_Start()) {
+            return;
+        }
+        s_divider = 0U;
+        return;
+    }
+
+    /* ── 定距停止检测 ── */
+    {
+        int16_t stopDist = g_modeParams[g_menuMode - 1U].stopDistance;
+        int32_t totalM3  = Encoder_GetTotalPulses(&gEncMotor3);
+        if (stopDist > 0 && totalM3 >= stopDist) {
+            SpeedControl_Stop();
+            g_menuStartFlag = 0U;
+            return;
+        }
+    }
+
+    /* 每 2 次调用（10ms）执行一次循迹 PID */
+    s_divider++;
+    if (s_divider < 2U) {
+        return;
+    }
+    s_divider = 0U;
+
+    {
+        int16_t baseSpd = g_modeParams[g_menuMode - 1U].trackBaseSpeed;
+        float offset = Track_CalcOffset(gRxByte);
+        float diff   = Track_PidUpdate(offset, 0.01f);
+        int16_t left  = baseSpd + (int16_t)diff;
+        int16_t right = baseSpd - (int16_t)diff;
+
+        if (left  < 0) left  = 0;
+        if (right < 0) right = 0;
+
+        SpeedControl_SetTargets(left, right);
+    }
 }
 
 void Mode3_Task(void)
