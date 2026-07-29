@@ -9,10 +9,14 @@
 #include "menu.h"
 #include "speed_control.h"
 #include "heading_control.h"
-#include "vehicle_yaw.h"
 #include "track.h"
 #include "param_storage.h"
+#include "encoder.h"
 #include "IMU660RB/imu660rb.h"
+#include "buzzer.h"
+
+/* 循迹传感器数据（gpio_toggle_output.c 中定义） */
+extern volatile uint8_t gRxByte;
 
 /* ---- 内部状态 ---- */
 static uint8_t s_lastStartFlag = 0U;
@@ -20,28 +24,52 @@ static uint8_t s_running       = 0U;  /* 是否处于运行状态 */
 
 void Mode1_Task(void)
 {
-    /* 首次调用时初始化：设置速度 20，启动控制器 */
-    if (!SpeedControl_IsRunning()) {
-        float refDeg;
+    /* 10ms 分频计数 */
+    static uint8_t s_divider = 0U;
 
-        if (!VehicleYaw_IsCalibrated()) {
-            return;
-        }
-        if (!VehicleYaw_GetStationaryReferenceDeg(&refDeg)) {
-            return;
-        }
-        if (!SpeedControl_SetTargets(20, 20)) {
+    /* 首次调用时初始化 */
+    if (!SpeedControl_IsRunning()) {
+        int16_t baseSpd = g_modeParams[g_menuMode - 1U].trackBaseSpeed;
+        if (!SpeedControl_SetTargets(baseSpd, baseSpd)) {
             return;
         }
         if (!SpeedControl_Start()) {
             return;
         }
-        if (!HeadingControl_Start(refDeg)) {
+        s_divider = 0U;
+        return;
+    }
+
+    /* ── 定距停止检测 ── */
+    {
+        int16_t stopDist = g_modeParams[g_menuMode - 1U].stopDistance;
+        int32_t totalM3  = Encoder_GetTotalPulses(&gEncMotor3);
+        if (stopDist > 0 && totalM3 >= stopDist) {
             SpeedControl_Stop();
+            g_menuStartFlag = 0U;
             return;
         }
     }
-    /* 后续每 5ms 调用：不做额外操作，槽 2 中的速度环/航向环自动运行 */
+
+    /* 每 2 次调用（10ms）执行一次循迹 PID */
+    s_divider++;
+    if (s_divider < 2U) {
+        return;
+    }
+    s_divider = 0U;
+
+    {
+        int16_t baseSpd = g_modeParams[g_menuMode - 1U].trackBaseSpeed;
+        float offset = Track_CalcOffset(gRxByte);
+        float diff   = Track_PidUpdate(offset, 0.01f);
+        int16_t left  = baseSpd + (int16_t)diff;
+        int16_t right = baseSpd - (int16_t)diff;
+
+        if (left  < 0) left  = 0;
+        if (right < 0) right = 0;
+
+        SpeedControl_SetTargets(left, right);
+    }
 }
 
 void Mode2_Task(void)
@@ -65,11 +93,13 @@ void Mode4_Task(void)
  */
 void ModeExecTask(void)
 {
-    /* ---- RESET 优先：立即急停 + 陀螺仪复位 ---- */
+    /* ---- RESET 优先：立即急停 + 陀螺仪复位 + 编码器清零 ---- */
     if (g_menuResetFlag) {
         HeadingControl_Stop();
         SpeedControl_Stop();
         FusionAhrsReset(&ahrs);
+        gEncMotor1.totalPulses = 0;
+        gEncMotor3.totalPulses = 0;
         g_menuStartFlag = 0U;
         g_menuResetFlag = 0U;
         s_running       = 0U;

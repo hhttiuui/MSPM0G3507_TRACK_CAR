@@ -88,7 +88,8 @@ static float Pid_GetValue(PidGroup g, PidField f)
     const ModeParams *p = &g_modeParams[g_menuMode - 1U];
 
     if (f == PID_FIELD_BASE_SPD) {
-        return (float)p->trackBaseSpeed;
+        return (float)((g == PID_GROUP_SPEED) ? p->speedBaseSpeed
+                                              : p->trackBaseSpeed);
     }
     if (g == PID_GROUP_TRACK) {
         switch (f) {
@@ -97,6 +98,7 @@ static float Pid_GetValue(PidGroup g, PidField f)
             case PID_FIELD_KD:     return p->trackKd;
             case PID_FIELD_OUT_MX: return p->trackOutMax;
             case PID_FIELD_I_MX:   return p->trackIMax;
+            default:               break;
         }
     } else if (g == PID_GROUP_SPEED) {
         switch (f) {
@@ -105,6 +107,7 @@ static float Pid_GetValue(PidGroup g, PidField f)
             case PID_FIELD_KD:     return p->speedKd;
             case PID_FIELD_OUT_MX: return (float)p->speedOutLimit;
             case PID_FIELD_I_MX:   return (float)p->speedOutLimit;
+            default:               break;
         }
     } else { /* PID_GROUP_SERVO */
         switch (f) {
@@ -114,6 +117,7 @@ static float Pid_GetValue(PidGroup g, PidField f)
             case PID_FIELD_OUT_MX: return p->servoOutMax;
             case PID_FIELD_I_MX:   return p->servoIMax;
             case PID_FIELD_DBAND:  return p->servoDeadband;
+            default:               break;
         }
     }
     return 0.0f;
@@ -125,7 +129,13 @@ static void Pid_SetValue(PidGroup g, PidField f, float v)
     ModeParams *p = &g_modeParams[g_menuMode - 1U];
 
     if (f == PID_FIELD_BASE_SPD) {
-        if (v > 0.0f && v <= 200.0f) p->trackBaseSpeed = (int16_t)v;
+        if (v > 0.0f && v <= 200.0f) {
+            if (g == PID_GROUP_SPEED) {
+                p->speedBaseSpeed = (int16_t)v;
+            } else {
+                p->trackBaseSpeed = (int16_t)v;
+            }
+        }
         return;
     }
     if (g == PID_GROUP_TRACK) {
@@ -135,6 +145,7 @@ static void Pid_SetValue(PidGroup g, PidField f, float v)
             case PID_FIELD_KD:     if (v >= 0.0f) p->trackKd = v; break;
             case PID_FIELD_OUT_MX: if (v > 0.0f) { p->trackOutMax = v; } break;
             case PID_FIELD_I_MX:   if (v > 0.0f) { p->trackIMax = v; } break;
+            default:               break;
         }
     } else if (g == PID_GROUP_SPEED) {
         switch (f) {
@@ -143,6 +154,7 @@ static void Pid_SetValue(PidGroup g, PidField f, float v)
             case PID_FIELD_KD:     if (v >= 0.0f) p->speedKd = v; break;
             case PID_FIELD_OUT_MX: if (v > 0.0f && v <= 1000.0f) p->speedOutLimit = (int16_t)v; break;
             case PID_FIELD_I_MX:   if (v > 0.0f && v <= 1000.0f) p->speedOutLimit = (int16_t)v; break;
+            default:               break;
         }
     } else { /* PID_GROUP_SERVO */
         switch (f) {
@@ -152,6 +164,7 @@ static void Pid_SetValue(PidGroup g, PidField f, float v)
             case PID_FIELD_OUT_MX: if (v >= 0.0f && v <= 45.0f) p->servoOutMax = v; break;
             case PID_FIELD_I_MX:   if (v >= 0.0f && v <= 45.0f) p->servoIMax = v; break;
             case PID_FIELD_DBAND:  if (v >= 0.0f && v <= 10.0f) p->servoDeadband = v; break;
+            default:               break;
         }
     }
 }
@@ -223,14 +236,23 @@ static void DrawConfig(void)
 static void DrawModeConfig(void)
 {
     uint8_t i;
-    const char *items[3] = {"SERVO_PID", "TRACK_PID", "SPEED_PID"};
+    uint8_t itemCount = (g_menuMode == 1U) ? 4U : 3U;
+    const char *items[4] = {"SERVO_PID", "TRACK_PID", "SPEED_PID", "STOP_DIST"};
 
     sprintf(s_buf, "M%d_CFG", (int)g_menuMode);
     OLED_ShowString(0, 0, (uint8_t *)s_buf, OLED_FONT_H);
 
-    for (i = 0U; i < 3U; i++) {
+    for (i = 0U; i < itemCount; i++) {
         uint8_t row = i + 1U;
-        sprintf(s_buf, "%c%s", (s_cursor == row) ? '>' : ' ', items[i]);
+        if (g_menuMode == 1U && i == 3U) {
+            /* MODE1 第 4 行：STOP_DIST:xxxxx */
+            ModeParams *p = &g_modeParams[g_menuMode - 1U];
+            uint8_t editing = (s_cursor == row && s_pidState == PID_STATE_EDIT) ? 1U : 0U;
+            char cur = editing ? '-' : ((s_cursor == row) ? '>' : ' ');
+            sprintf(s_buf, "%cSTOP_DIST:%5d", cur, (int)p->stopDistance);
+        } else {
+            sprintf(s_buf, "%c%s", (s_cursor == row) ? '>' : ' ', items[i]);
+        }
         OLED_ShowString(0, row, (uint8_t *)s_buf, OLED_FONT_H);
     }
 
@@ -355,11 +377,22 @@ static void DrawPidEdit(void)
 
     row = 1U;
     for (i = 1U; i <= maxField; i++) {
-        /* SPEED/SERVO 页跳过不适用字段 */
-        if (s_pidGroup != PID_GROUP_TRACK &&
-            ((PidField)i == PID_FIELD_I_MX ||
-             (PidField)i == PID_FIELD_BASE_SPD)) {
-            continue;
+        /* 跳过不适用字段：TRACK 跳过 DBAND/BASE_SPD；SPEED 跳过 I_MX/DBAND/TURN_S；SERVO 跳过 I_MX/BASE_SPD */
+        if (s_pidGroup == PID_GROUP_TRACK) {
+            if ((PidField)i == PID_FIELD_DBAND ||
+                (PidField)i == PID_FIELD_BASE_SPD) {
+                continue;
+            }
+        } else if (s_pidGroup == PID_GROUP_SPEED) {
+            if ((PidField)i == PID_FIELD_I_MX ||
+                (PidField)i == PID_FIELD_DBAND) {
+                continue;
+            }
+        } else { /* SERVO */
+            if ((PidField)i == PID_FIELD_I_MX ||
+                (PidField)i == PID_FIELD_BASE_SPD) {
+                continue;
+            }
         }
         const char *name = PidField_Name((PidField)i);
         float val = Pid_GetValue(s_pidGroup, (PidField)i);
@@ -520,15 +553,46 @@ void Menu_HandleKeys(void)
             break;
 
         case PAGE_MODE_CONFIG:
-            if (key == KEY2_PRES) {
-                if (s_cursor > 1U) s_cursor--; else s_cursor = 3U;
-                OLED_Clear();
-            } else if (key == KEY4_PRES) {
-                if (s_cursor < 3U) s_cursor++; else s_cursor = 1U;
-                OLED_Clear();
-            } else if (key == KEY3_PRES) {
-                ModeConfig_OnConfirm();
-                OLED_Clear();
+            {
+                uint8_t maxCursor = (g_menuMode == 1U) ? 4U : 3U;
+
+                /* MODE1 第 4 行 STOP_DIST 编辑态 */
+                if (g_menuMode == 1U && s_cursor == 4U && s_pidState == PID_STATE_EDIT) {
+                    uint8_t k2_long = Key_ReadLongPress(KEY_ID_2);
+                    uint8_t k4_long = Key_ReadLongPress(KEY_ID_4);
+                    ModeParams *p = &g_modeParams[g_menuMode - 1U];
+                    if (key == KEY2_PRES || (k2_long && k2_now)) {
+                        int16_t step = (k2_long && k2_now) ? 100 : 1;
+                        if (p->stopDistance <= 65535 - step) p->stopDistance += step;
+                        else p->stopDistance = 65535;
+                        OLED_Clear();
+                    } else if (key == KEY4_PRES || (k4_long && k4_now)) {
+                        int16_t step = (k4_long && k4_now) ? 100 : 1;
+                        if (p->stopDistance > step) p->stopDistance -= step;
+                        else p->stopDistance = 1;
+                        OLED_Clear();
+                    } else if (key == KEY3_PRES || key == KEY1_PRES) {
+                        s_pidState = PID_STATE_SEL;
+                        OLED_Clear();
+                    }
+                    break;
+                }
+
+                if (key == KEY2_PRES) {
+                    if (s_cursor > 1U) s_cursor--; else s_cursor = maxCursor;
+                    OLED_Clear();
+                } else if (key == KEY4_PRES) {
+                    if (s_cursor < maxCursor) s_cursor++; else s_cursor = 1U;
+                    OLED_Clear();
+                } else if (key == KEY3_PRES) {
+                    if (g_menuMode == 1U && s_cursor == 4U) {
+                        s_pidState = PID_STATE_EDIT;
+                        OLED_Clear();
+                    } else {
+                        ModeConfig_OnConfirm();
+                        OLED_Clear();
+                    }
+                }
             }
             break;
 

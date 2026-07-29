@@ -40,6 +40,8 @@ static const ModeParams s_defaultParams = {
     .trackOutMax    = 15.0f,
     .trackIMax      = 30.0f,
     .trackBaseSpeed = 12,
+    .speedBaseSpeed = 18,
+    .stopDistance   = 7200,
     /* 角度环 PID 默认值 */
     .servoKp        = 2.0f,
     .servoKi        = 0.1f,
@@ -177,6 +179,8 @@ void Param_ApplyMode(uint8_t mode)
     Track_SetOutMax(p->trackOutMax);
     Track_SetIMax(p->trackIMax);
     Track_SetBaseSpeed(p->trackBaseSpeed);
+
+    /* 注：speedBaseSpeed 由模式任务在 START 时通过 SpeedControl_SetTargets 使用 */
 
     /* 应用角度环 PID 参数到运行时结构体 */
     AngleServo_ApplyParams(p);
