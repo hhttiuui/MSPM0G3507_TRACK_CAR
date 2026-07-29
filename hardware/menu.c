@@ -16,8 +16,6 @@
 #include "speed_control.h"
 #include "track.h"
 #include "param_storage.h"
-#include "top_zhengfangxing.h"
-#include "si24r1.h"
 #include "buzzer.h"
 #include <stdio.h>
 
@@ -30,9 +28,6 @@ volatile uint8_t g_gyroOk         = 1U;  /* 上电时默认可为 OK，由菜单
 /* ---- 循迹串口字节（引用自主程序） ---- */
 extern volatile uint8_t gRxByte;
 
-/* ---- NR02 接收数据 ---- */
-extern volatile uint8_t g_nr02RxData;
-
 /* ---- 内部状态 ---- */
 static volatile MenuPage     s_page       = PAGE_MAIN;
 static volatile uint8_t      s_cursor     = 1U;
@@ -44,12 +39,7 @@ static volatile PidEditState s_pidState   = PID_STATE_SEL;
 /* 保存成功提示帧计时（>0 时在 row 0 末尾显示 SAVE_OK） */
 static volatile uint8_t s_saveOkFrames = 0U;
 
-/* NR02 调试：待发送数据字节 */
-static volatile uint8_t s_nr02TxData   = 0U;
-static volatile uint8_t s_nr02FreqCh   = 26U;  /* 频段 0~125，默认 26 */
-
 /* OTHERS 调试：开关状态 */
-static volatile uint8_t s_buzzerOn  = 0U;
 static volatile uint8_t s_magnetOn  = 0U;
 static volatile uint8_t s_ledOn     = 0U;
 
@@ -87,7 +77,6 @@ static const char *PidField_Name(PidField f)
         case PID_FIELD_OUT_MX:   return "OUT_MX";
         case PID_FIELD_I_MX:     return "I_MX  ";
         case PID_FIELD_DBAND:    return "DBAND ";
-        case PID_FIELD_TURN_SPD: return "TURN_S";
         case PID_FIELD_BASE_SPD: return "BASE_S";
         default:                 return "?     ";
     }
@@ -98,9 +87,8 @@ static float Pid_GetValue(PidGroup g, PidField f)
 {
     const ModeParams *p = &g_modeParams[g_menuMode - 1U];
 
-    if (f == PID_FIELD_BASE_SPD || f == PID_FIELD_TURN_SPD) {
-        return (f == PID_FIELD_TURN_SPD) ? (float)p->trackTurnSpeed
-                                         : (float)p->trackBaseSpeed;
+    if (f == PID_FIELD_BASE_SPD) {
+        return (float)p->trackBaseSpeed;
     }
     if (g == PID_GROUP_TRACK) {
         switch (f) {
@@ -136,10 +124,6 @@ static void Pid_SetValue(PidGroup g, PidField f, float v)
 {
     ModeParams *p = &g_modeParams[g_menuMode - 1U];
 
-    if (f == PID_FIELD_TURN_SPD) {
-        if (v > 0.0f && v <= 50.0f) p->trackTurnSpeed = (int16_t)v;
-        return;
-    }
     if (f == PID_FIELD_BASE_SPD) {
         if (v > 0.0f && v <= 200.0f) p->trackBaseSpeed = (int16_t)v;
         return;
@@ -224,11 +208,11 @@ static void DrawMain(void)
 static void DrawConfig(void)
 {
     uint8_t i;
-    const char *items[6] = {"MODE1", "MODE2", "MODE3", "MODE4", "NR02_DBG", "OTHERS"};
+    const char *items[5] = {"MODE1", "MODE2", "MODE3", "MODE4", "OTHERS"};
 
     OLED_ShowString(0, 0, (uint8_t *)"CONFIG", OLED_FONT_H);
 
-    for (i = 1U; i <= 6U; i++) {
+    for (i = 1U; i <= 5U; i++) {
         sprintf(s_buf, "%c%s", (s_cursor == i) ? '>' : ' ', items[i - 1U]);
         OLED_ShowString(0, i, (uint8_t *)s_buf, OLED_FONT_H);
     }
@@ -239,81 +223,15 @@ static void DrawConfig(void)
 static void DrawModeConfig(void)
 {
     uint8_t i;
-    uint8_t groupCount = 0U;
-
-    /* MODE1：SERVO_PID 角度环 */
-    /* MODE2：TRACK_PID / SPEED_PID / TURN_S / ENTRY / E_THR / TURNS */
-    /* MODE3/4：SERVO_PID / TRACK_PID / SPEED_PID 全部 */
-    if (g_menuMode == 1U) {
-        groupCount = 1U;
-    } else if (g_menuMode == 2U) {
-        groupCount = 6U;
-    } else if (g_menuMode == 3U || g_menuMode == 4U) {
-        groupCount = 3U;
-    }
+    const char *items[3] = {"SERVO_PID", "TRACK_PID", "SPEED_PID"};
 
     sprintf(s_buf, "M%d_CFG", (int)g_menuMode);
     OLED_ShowString(0, 0, (uint8_t *)s_buf, OLED_FONT_H);
 
-    if (groupCount == 0U) {
-        OLED_ShowString(0, 2, (uint8_t *)" (no config) ", OLED_FONT_H);
-    } else {
-        for (i = 0U; i < groupCount; i++) {
-            uint8_t row = i + 1U;
-            ModeParams *p = &g_modeParams[g_menuMode - 1U];
-
-            if (g_menuMode == 1U) {
-                /* MODE1: 仅 SERVO_PID */
-                if (i == 0U) {
-                    sprintf(s_buf, "%cSERVO_PID", (s_cursor == row) ? '>' : ' ');
-                }
-            } else if (g_menuMode == 3U || g_menuMode == 4U) {
-                /* MODE3/4: SERVO / TRACK / SPEED 三个 PID 组 */
-                if (i == 0U) {
-                    sprintf(s_buf, "%cSERVO_PID", (s_cursor == row) ? '>' : ' ');
-                } else if (i == 1U) {
-                    sprintf(s_buf, "%cTRACK_PID", (s_cursor == row) ? '>' : ' ');
-                } else if (i == 2U) {
-                    sprintf(s_buf, "%cSPEED_PID", (s_cursor == row) ? '>' : ' ');
-                }
-            } else {
-                /* MODE2 各项 */
-                if (i == 0U) {
-                    /* TRACK_PID */
-                    sprintf(s_buf, "%cTRACK_PID", (s_cursor == row) ? '>' : ' ');
-                } else if (i == 1U) {
-                    /* SPEED_PID */
-                    sprintf(s_buf, "%cSPEED_PID", (s_cursor == row) ? '>' : ' ');
-                } else if (i == 2U) {
-                /* TURN_S:xx 可直接编辑 */
-                uint8_t editing = (s_cursor == row && s_pidState == PID_STATE_EDIT) ? 1U : 0U;
-                float spd = (float)p->trackTurnSpeed;
-                char cur = editing ? '-' : ((s_cursor == row) ? '>' : ' ');
-                sprintf(s_buf, "%cTURN_S:%7.2f", cur, (double)spd);
-            } else if (i == 3U) {
-                /* ENTRY:ON/OFF 开关 */
-                char cur = (s_cursor == row) ? '>' : ' ';
-                sprintf(s_buf, "%cENTRY: %s", cur, p->entryEnable ? "ON " : "OFF");
-            } else if (i == 4U) {
-                /* E_THR:xxxx 可直接编辑 */
-                uint8_t editing = (s_cursor == row && s_pidState == PID_STATE_EDIT) ? 1U : 0U;
-                char cur = editing ? '-' : ((s_cursor == row) ? '>' : ' ');
-                sprintf(s_buf, "%cE_THR: %5d", cur, (int)p->entryThreshold);
-            } else if (i == 5U) {
-                /* TURNS: x/xx 显示当前计数/目标 */
-                uint8_t editing = (s_cursor == row && s_pidState == PID_STATE_EDIT) ? 1U : 0U;
-                char cur = editing ? '-' : ((s_cursor == row) ? '>' : ' ');
-                if (p->stopAfterTurns > 0) {
-                    sprintf(s_buf, "%cTURNS:%3d/%3d", cur,
-                            (int)TrackSquare_GetTurnCount(), (int)p->stopAfterTurns);
-                } else {
-                    sprintf(s_buf, "%cTURNS:%3d/ --", cur,
-                            (int)TrackSquare_GetTurnCount());
-                }
-            }
-            }  /* end of MODE2 else */
-            OLED_ShowString(0, row, (uint8_t *)s_buf, OLED_FONT_H);
-        }
+    for (i = 0U; i < 3U; i++) {
+        uint8_t row = i + 1U;
+        sprintf(s_buf, "%c%s", (s_cursor == row) ? '>' : ' ', items[i]);
+        OLED_ShowString(0, row, (uint8_t *)s_buf, OLED_FONT_H);
     }
 
     OLED_ShowString(0, 7, (uint8_t *)"MADE_BY->hhttiuui", OLED_FONT_H);
@@ -400,50 +318,17 @@ static void DrawOthers(void)
 {
     OLED_ShowString(0, 0, (uint8_t *)"OTHERS", OLED_FONT_H);
 
-    /* Row 1: BUZZER */
-    sprintf(s_buf, "%cBUZZER:%s",
-            (s_cursor == 1U) ? '>' : ' ',
-            s_buzzerOn ? "ON " : "OFF");
-    OLED_ShowString(0, 1, (uint8_t *)s_buf, OLED_FONT_H);
-
-    /* Row 2: MAGNET */
+    /* Row 1: MAGNET */
     sprintf(s_buf, "%cMAGNET:%s",
-            (s_cursor == 2U) ? '>' : ' ',
+            (s_cursor == 1U) ? '>' : ' ',
             s_magnetOn ? "ON " : "OFF");
-    OLED_ShowString(0, 2, (uint8_t *)s_buf, OLED_FONT_H);
-
-    /* Row 3: LED */
-    sprintf(s_buf, "%cLED:%s",
-            (s_cursor == 3U) ? '>' : ' ',
-            s_ledOn ? "ON " : "OFF");
-    OLED_ShowString(0, 3, (uint8_t *)s_buf, OLED_FONT_H);
-
-    OLED_ShowString(0, 7, (uint8_t *)"MADE_BY->hhttiuui", OLED_FONT_H);
-}
-
-static void DrawNR02Dbg(void)
-{
-    char cursorCh = (s_pidState == PID_STATE_EDIT) ? '-' : '>';
-
-    OLED_ShowString(0, 0, (uint8_t *)"NR02_DBG", OLED_FONT_H);
-
-    /* Row 1: T_DATA:xx（支持编辑态光标切换） */
-    sprintf(s_buf, "%cT_DATA:%3d",
-            (s_cursor == 1U) ? cursorCh : ' ', (int)s_nr02TxData);
     OLED_ShowString(0, 1, (uint8_t *)s_buf, OLED_FONT_H);
 
-    /* Row 2: R_DATA:xx（只读） */
-    sprintf(s_buf, "  R_DATA:%3d", (int)g_nr02RxData);
+    /* Row 2: LED */
+    sprintf(s_buf, "%cLED:%s",
+            (s_cursor == 2U) ? '>' : ' ',
+            s_ledOn ? "ON " : "OFF");
     OLED_ShowString(0, 2, (uint8_t *)s_buf, OLED_FONT_H);
-
-    /* Row 3: TRANSMIT */
-    sprintf(s_buf, "%cTRANSMIT", (s_cursor == 3U) ? '>' : ' ');
-    OLED_ShowString(0, 3, (uint8_t *)s_buf, OLED_FONT_H);
-
-    /* Row 4: FREQ:x (0~125) */
-    sprintf(s_buf, "%cFREQ:    %3d",
-            (s_cursor == 4U) ? cursorCh : ' ', (int)s_nr02FreqCh);
-    OLED_ShowString(0, 4, (uint8_t *)s_buf, OLED_FONT_H);
 
     OLED_ShowString(0, 7, (uint8_t *)"MADE_BY->hhttiuui", OLED_FONT_H);
 }
@@ -472,7 +357,7 @@ static void DrawPidEdit(void)
     for (i = 1U; i <= maxField; i++) {
         /* SPEED/SERVO 页跳过不适用字段 */
         if (s_pidGroup != PID_GROUP_TRACK &&
-            ((PidField)i == PID_FIELD_I_MX || (PidField)i == PID_FIELD_TURN_SPD ||
+            ((PidField)i == PID_FIELD_I_MX ||
              (PidField)i == PID_FIELD_BASE_SPD)) {
             continue;
         }
@@ -513,10 +398,6 @@ static void Config_OnConfirm(void)
         s_page     = PAGE_MODE_CONFIG;
         s_cursor   = 1U;
         s_pidState = PID_STATE_SEL;
-    } else if (s_cursor == 5U) {
-        s_page   = PAGE_NR02_DBG;
-        s_cursor = 1U;
-        s_pidState = PID_STATE_SEL;
     } else {
         s_page   = PAGE_OTHERS;
         s_cursor = 1U;
@@ -526,15 +407,9 @@ static void Config_OnConfirm(void)
 
 static void ModeConfig_OnConfirm(void)
 {
-    if (g_menuMode == 1U) {
-        s_pidGroup = PID_GROUP_SERVO;
-    } else if (g_menuMode == 3U || g_menuMode == 4U) {
-        if (s_cursor == 1U)      s_pidGroup = PID_GROUP_SERVO;
-        else if (s_cursor == 2U) s_pidGroup = PID_GROUP_TRACK;
-        else                     s_pidGroup = PID_GROUP_SPEED;
-    } else {
-        s_pidGroup  = (s_cursor == 1U) ? PID_GROUP_TRACK : PID_GROUP_SPEED;
-    }
+    if (s_cursor == 1U)      s_pidGroup = PID_GROUP_SERVO;
+    else if (s_cursor == 2U) s_pidGroup = PID_GROUP_TRACK;
+    else                     s_pidGroup = PID_GROUP_SPEED;
     s_pidField  = PID_FIELD_KP;
     s_page      = PAGE_PID_EDIT;
     s_pidState  = PID_STATE_SEL;
@@ -606,10 +481,8 @@ void Menu_HandleKeys(void)
             s_page = PAGE_MODE_CONFIG;  s_cursor = 1U;
         } else if (s_page == PAGE_MODE_CONFIG) {
             s_page = PAGE_CONFIG;       s_cursor = g_menuMode;
-        } else if (s_page == PAGE_NR02_DBG) {
-            s_page = PAGE_CONFIG;       s_cursor = 5U;
         } else if (s_page == PAGE_OTHERS) {
-            s_page = PAGE_CONFIG;       s_cursor = 6U;
+            s_page = PAGE_CONFIG;       s_cursor = 5U;
         } else {
             s_page = PAGE_MAIN;         s_cursor = 1U;
         }
@@ -635,10 +508,10 @@ void Menu_HandleKeys(void)
 
         case PAGE_CONFIG:
             if (key == KEY2_PRES) {
-                if (s_cursor > 1U) s_cursor--; else s_cursor = 6U;
+                if (s_cursor > 1U) s_cursor--; else s_cursor = 5U;
                 OLED_Clear();
             } else if (key == KEY4_PRES) {
-                if (s_cursor < 6U) s_cursor++; else s_cursor = 1U;
+                if (s_cursor < 5U) s_cursor++; else s_cursor = 1U;
                 OLED_Clear();
             } else if (key == KEY3_PRES) {
                 Config_OnConfirm();
@@ -647,100 +520,15 @@ void Menu_HandleKeys(void)
             break;
 
         case PAGE_MODE_CONFIG:
-            {
-                ModeParams *p = &g_modeParams[g_menuMode - 1U];
-
-                /* TURN_S 编辑态（光标在第3行） */
-                if (s_cursor == 3U && s_pidState == PID_STATE_EDIT) {
-                    if (key == KEY2_PRES) {
-                        p->trackTurnSpeed += 1;
-                        if (p->trackTurnSpeed > 50) p->trackTurnSpeed = 50;
-                        OLED_Clear();
-                    } else if (key == KEY4_PRES) {
-                        p->trackTurnSpeed -= 1;
-                        if (p->trackTurnSpeed < 0) p->trackTurnSpeed = 0;
-                        OLED_Clear();
-                    } else if (key == KEY3_PRES) {
-                        s_pidState = PID_STATE_SEL;
-                        OLED_Clear();
-                    } else if (key == KEY1_PRES) {
-                        s_pidState = PID_STATE_SEL;
-                        OLED_Clear();
-                    }
-                    break;
-                }
-
-                /* E_THR 编辑态（光标在第5行） */
-                if (s_cursor == 5U && s_pidState == PID_STATE_EDIT) {
-                    if (key == KEY2_PRES) {
-                        p->entryThreshold += 10;
-                        if (p->entryThreshold > 2000) p->entryThreshold = 2000;
-                        OLED_Clear();
-                    } else if (key == KEY4_PRES) {
-                        p->entryThreshold -= 10;
-                        if (p->entryThreshold < 10) p->entryThreshold = 10;
-                        OLED_Clear();
-                    } else if (key == KEY3_PRES) {
-                        s_pidState = PID_STATE_SEL;
-                        OLED_Clear();
-                    } else if (key == KEY1_PRES) {
-                        s_pidState = PID_STATE_SEL;
-                        OLED_Clear();
-                    }
-                    break;
-                }
-
-                /* TURNS 编辑态（光标在第6行） */
-                if (s_cursor == 6U && s_pidState == PID_STATE_EDIT) {
-                    if (key == KEY2_PRES) {
-                        p->stopAfterTurns++;
-                        if (p->stopAfterTurns > 99) p->stopAfterTurns = 99;
-                        OLED_Clear();
-                    } else if (key == KEY4_PRES) {
-                        p->stopAfterTurns--;
-                        if (p->stopAfterTurns < 0) p->stopAfterTurns = 0;
-                        OLED_Clear();
-                    } else if (key == KEY3_PRES) {
-                        s_pidState = PID_STATE_SEL;
-                        OLED_Clear();
-                    } else if (key == KEY1_PRES) {
-                        s_pidState = PID_STATE_SEL;
-                        OLED_Clear();
-                    }
-                    break;
-                }
-
-                /* ENTRY 开关切换（光标在第4行） */
-                if (s_cursor == 4U && key == KEY3_PRES) {
-                    p->entryEnable = p->entryEnable ? 0 : 1;
-                    OLED_Clear();
-                    break;
-                }
-
-                /* 光标移动（动态最大光标） */
-                {
-                    uint8_t maxCursor = 1U;
-                    if (g_menuMode == 2U)      maxCursor = 6U;
-                    else if (g_menuMode >= 3U) maxCursor = 3U;
-
-                    if (key == KEY2_PRES) {
-                        if (s_cursor > 1U) s_cursor--; else s_cursor = maxCursor;
-                        OLED_Clear();
-                    } else if (key == KEY4_PRES) {
-                        if (s_cursor < maxCursor) s_cursor++; else s_cursor = 1U;
-                        OLED_Clear();
-                    } else if (key == KEY3_PRES) {
-                        /* 进入编辑态（仅 MODE2 的 TURN_S/E_THR/TURNS）或进入 PID 页面 */
-                        if (g_menuMode == 2U &&
-                            (s_cursor == 3U || s_cursor == 5U || s_cursor == 6U)) {
-                            s_pidState = PID_STATE_EDIT;
-                            OLED_Clear();
-                        } else {
-                            ModeConfig_OnConfirm();
-                            OLED_Clear();
-                        }
-                    }
-                }
+            if (key == KEY2_PRES) {
+                if (s_cursor > 1U) s_cursor--; else s_cursor = 3U;
+                OLED_Clear();
+            } else if (key == KEY4_PRES) {
+                if (s_cursor < 3U) s_cursor++; else s_cursor = 1U;
+                OLED_Clear();
+            } else if (key == KEY3_PRES) {
+                ModeConfig_OnConfirm();
+                OLED_Clear();
             }
             break;
 
@@ -766,73 +554,20 @@ void Menu_HandleKeys(void)
 
         case PAGE_OTHERS:
             if (key == KEY2_PRES) {
-                if (s_cursor > 1U) s_cursor--; else s_cursor = 3U;
+                if (s_cursor > 1U) s_cursor--; else s_cursor = 2U;
                 OLED_Clear();
             } else if (key == KEY4_PRES) {
-                if (s_cursor < 3U) s_cursor++; else s_cursor = 1U;
+                if (s_cursor < 2U) s_cursor++; else s_cursor = 1U;
                 OLED_Clear();
             } else if (key == KEY3_PRES) {
                 /* 切换当前选中项 */
                 if (s_cursor == 1U) {
-                    s_buzzerOn = s_buzzerOn ? 0U : 1U;
-                    if (s_buzzerOn) Buzzer_On(); else Buzzer_Off();
-                } else if (s_cursor == 2U) {
                     s_magnetOn = s_magnetOn ? 0U : 1U;
                     if (s_magnetOn) Magnet_On(); else Magnet_Off();
                 } else {
                     s_ledOn = s_ledOn ? 0U : 1U;
                     if (s_ledOn) LED_On(); else LED_Off();
                 }
-                OLED_Clear();
-            }
-            break;
-
-        case PAGE_NR02_DBG:
-            /* T_DATA 编辑态 */
-            if (s_cursor == 1U && s_pidState == PID_STATE_EDIT) {
-                if (key == KEY2_PRES) {
-                    s_nr02TxData++;
-                    OLED_Clear();
-                } else if (key == KEY4_PRES) {
-                    s_nr02TxData--;
-                    OLED_Clear();
-                } else if (key == KEY3_PRES || key == KEY1_PRES) {
-                    s_pidState = PID_STATE_SEL;
-                    OLED_Clear();
-                }
-            } else if (s_cursor == 1U && key == KEY3_PRES) {
-                s_pidState = PID_STATE_EDIT;
-                OLED_Clear();
-
-            /* FREQ 编辑态 */
-            } else if (s_cursor == 4U && s_pidState == PID_STATE_EDIT) {
-                if (key == KEY2_PRES) {
-                    if (s_nr02FreqCh < 125U) s_nr02FreqCh++;
-                    OLED_Clear();
-                } else if (key == KEY4_PRES) {
-                    if (s_nr02FreqCh > 0U) s_nr02FreqCh--;
-                    OLED_Clear();
-                } else if (key == KEY3_PRES || key == KEY1_PRES) {
-                    /* 退出编辑 → 自动写入模块 */
-                    s_pidState = PID_STATE_SEL;
-                    Si24R1_SetChannel(s_nr02FreqCh);
-                    OLED_Clear();
-                }
-            } else if (s_cursor == 4U && key == KEY3_PRES) {
-                s_pidState = PID_STATE_EDIT;
-                OLED_Clear();
-
-            } else if (s_cursor == 3U && key == KEY3_PRES) {
-                /* 发送当前数据 */
-                uint8_t txBuf[32] = {0};
-                txBuf[0] = s_nr02TxData;
-                Si24R1_TxPacket(txBuf);
-                OLED_Clear();
-            } else if (key == KEY2_PRES) {
-                if (s_cursor > 1U) s_cursor--; else s_cursor = 4U;
-                OLED_Clear();
-            } else if (key == KEY4_PRES) {
-                if (s_cursor < 4U) s_cursor++; else s_cursor = 1U;
                 OLED_Clear();
             }
             break;
@@ -845,11 +580,9 @@ void Menu_HandleKeys(void)
                             s_pidField = (PidField)((uint8_t)s_pidField - 1U);
                         else s_pidField = (PidField)PID_FIELD_COUNT;
                     } while ((s_pidGroup == PID_GROUP_SPEED &&
-                              ((PidField)s_pidField == PID_FIELD_I_MX ||
-                               (PidField)s_pidField == PID_FIELD_TURN_SPD)) ||
+                              (PidField)s_pidField == PID_FIELD_I_MX) ||
                              (s_pidGroup == PID_GROUP_SERVO &&
-                              ((PidField)s_pidField == PID_FIELD_TURN_SPD ||
-                               (PidField)s_pidField == PID_FIELD_BASE_SPD)));
+                              (PidField)s_pidField == PID_FIELD_BASE_SPD));
                     OLED_Clear();
                 } else if (key == KEY4_PRES) {
                     do {
@@ -857,11 +590,9 @@ void Menu_HandleKeys(void)
                             s_pidField = (PidField)((uint8_t)s_pidField + 1U);
                         else s_pidField = PID_FIELD_KP;
                     } while ((s_pidGroup == PID_GROUP_SPEED &&
-                              ((PidField)s_pidField == PID_FIELD_I_MX ||
-                               (PidField)s_pidField == PID_FIELD_TURN_SPD)) ||
+                              (PidField)s_pidField == PID_FIELD_I_MX) ||
                              (s_pidGroup == PID_GROUP_SERVO &&
-                              ((PidField)s_pidField == PID_FIELD_TURN_SPD ||
-                               (PidField)s_pidField == PID_FIELD_BASE_SPD)));
+                              (PidField)s_pidField == PID_FIELD_BASE_SPD));
                     OLED_Clear();
                 } else if (key == KEY3_PRES) {
                     s_pidState = PID_STATE_EDIT;
@@ -874,7 +605,6 @@ void Menu_HandleKeys(void)
                 /* 整数字段（int16_t）步长 1.0，浮点字段步长 0.01 */
                 uint8_t isIntField =
                     (PidField)s_pidField == PID_FIELD_BASE_SPD ||
-                    (PidField)s_pidField == PID_FIELD_TURN_SPD ||
                     ((PidField)s_pidField == PID_FIELD_OUT_MX && s_pidGroup != PID_GROUP_TRACK) ||
                     ((PidField)s_pidField == PID_FIELD_I_MX   && s_pidGroup != PID_GROUP_TRACK);
                 float step = (k2_long || k4_long) ? (isIntField ? 5.0f : 0.50f)
@@ -909,7 +639,6 @@ void Menu_Draw(void)
         case PAGE_MODE_CONFIG: DrawModeConfig(); break;
         case PAGE_MODE:        DrawMode();       break;
         case PAGE_DATA_SHOW:   DrawDataShow();   break;
-        case PAGE_NR02_DBG:    DrawNR02Dbg();    break;
         case PAGE_OTHERS:      DrawOthers();     break;
         case PAGE_PID_EDIT:    DrawPidEdit();    break;
     }

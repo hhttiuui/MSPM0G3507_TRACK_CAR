@@ -26,8 +26,7 @@ typedef enum {
     PAGE_DATA_SHOW,
     PAGE_MODE_CONFIG,       /* 某 mode 的 PID 组选择 */
     PAGE_PID_EDIT,          /* PID 参数编辑页（选/编 状态机） */
-    PAGE_NR02_DBG,          /* 2.4G 无线调试 */
-    PAGE_OTHERS,            /* 蜂鸣器 / 磁铁 / LED 调试 */
+    PAGE_OTHERS,            /* 磁铁 / LED 调试 */
 } MenuPage;
 
 /* ---- PID 组（用于 MODE_CONFIG 页） ---- */
@@ -46,8 +45,7 @@ typedef enum {
     PID_FIELD_OUT_MX,
     PID_FIELD_I_MX,
     PID_FIELD_DBAND,           /* 死区（仅 SERVO PID 生效） */
-    PID_FIELD_TURN_SPD,        /* 循迹转弯速度 */
-    PID_FIELD_BASE_SPD,        /* 仅 SPEED PID 生效 */
+    PID_FIELD_BASE_SPD,        /* 循迹基速 */
     PID_FIELD_COUNT = PID_FIELD_BASE_SPD,
 } PidField;
 
@@ -62,8 +60,6 @@ extern volatile uint8_t g_menuMode;        /* 当前模式 1~4 */
 extern volatile uint8_t g_menuStartFlag;   /* 启动标志 */
 extern volatile uint8_t g_menuResetFlag;   /* 复位标志 */
 
-/* ---- NR02 调试（供 menu.c 读取） ---- */
-extern volatile uint8_t g_nr02RxData;      /* 最近收到的无线数据 */
 extern volatile uint8_t g_gyroOk;           /* 陀螺仪初始化完成标志 */
 
 /* ---- 菜单公开 API ---- */

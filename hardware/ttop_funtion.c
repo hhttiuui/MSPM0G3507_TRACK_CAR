@@ -12,17 +12,11 @@
 #include "vehicle_yaw.h"
 #include "track.h"
 #include "param_storage.h"
-#include "top_zhengfangxing.h"
-#include "buzzer.h"
 #include "IMU660RB/imu660rb.h"
-
-/* 循迹 UART 数据字节（gpio_toggle_output.c 中定义） */
-extern volatile uint8_t gRxByte;
 
 /* ---- 内部状态 ---- */
 static uint8_t s_lastStartFlag = 0U;
 static uint8_t s_running       = 0U;  /* 是否处于运行状态 */
-static uint8_t s_finishBeeped  = 0U;  /* 已完成蜂鸣标志 */
 
 void Mode1_Task(void)
 {
@@ -52,42 +46,7 @@ void Mode1_Task(void)
 
 void Mode2_Task(void)
 {
-    /* 10ms 分频计数：ModeExecTask 每 5ms 调用，2 次 = 10ms */
-    static uint8_t s_divider = 0U;
-
-    /* 首次调用时初始化 */
-    if (!SpeedControl_IsRunning()) {
-        int16_t baseSpd = g_modeParams[g_menuMode - 1U].trackBaseSpeed;
-        TrackSquare_Init();
-        s_finishBeeped = 0U;
-        if (!SpeedControl_SetTargets(baseSpd, baseSpd)) {
-            return;
-        }
-        if (!SpeedControl_Start()) {
-            return;
-        }
-        s_divider = 0U;
-        return;
-    }
-
-    /* 每 2 次调用（10ms）执行一次正方形循迹 */
-    s_divider++;
-    if (s_divider < 2U) {
-        return;
-    }
-    s_divider = 0U;
-
-    TrackSquare_Task(gRxByte);
-
-    /* 检测是否已完成所有直角 → 蜂鸣 1s → 停止运行，等待 RESET */
-    if (TrackSquare_GetState() == TRACK_STATE_FINISH) {
-        if (!s_finishBeeped) {
-            s_finishBeeped = 1U;
-            Buzzer_BeepMs(1000U);
-        }
-        SpeedControl_Stop();
-        g_menuStartFlag = 0U;
-    }
+    /* TODO: MODE2 具体逻辑 */
 }
 
 void Mode3_Task(void)

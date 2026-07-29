@@ -25,11 +25,6 @@ typedef struct {
     float   trackOutMax;
     float   trackIMax;
     int16_t trackBaseSpeed;
-    int16_t trackTurnSpeed;   /* 正方形循迹转弯速度（脉冲/20ms） */
-
-    int16_t entryEnable;      /* 直角入口等待使能（0=关闭, 1=开启） */
-    int16_t entryThreshold;   /* 入口等待编码器增量阈值（默认 200） */
-    int16_t stopAfterTurns;   /* 运行 x 个直角后停止（0=不限制） */
 
     /* 角度环 PID（舵机） */
     float   servoKp;
@@ -39,7 +34,7 @@ typedef struct {
     float   servoIMax;        /* 积分饱和限 */
     float   servoDeadband;    /* 死区 (°) */
     float   servoBaseAngle;   /* 舵机基准角 (默认 90°) */
-} ModeParams;  /* 22 × uint32_t = 88 字节 */
+} ModeParams;  /* 18 × uint32_t = 72 字节 */
 
 /* 全部 4 套参数 */
 extern ModeParams g_modeParams[PARAM_MODE_COUNT];
