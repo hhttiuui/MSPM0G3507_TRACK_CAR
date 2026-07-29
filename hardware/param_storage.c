@@ -40,6 +40,8 @@ static const ModeParams s_defaultParams = {
     .trackOutMax    = 15.0f,
     .trackIMax      = 30.0f,
     .trackBaseSpeed = 12,
+    .speedBaseSpeed = 18,
+    .stopDistance   = 7200,
     /* 角度环 PID 默认值 */
     .servoKp        = 2.0f,
     .servoKi        = 0.1f,
@@ -123,6 +125,17 @@ void Param_Init(void)
     for (uint8_t m = 0; m < PARAM_MODE_COUNT; m++) {
         UnpackParams(&g_modeParams[m], &buf[1 + m * PARAM_U32_PER_MODE]);
     }
+
+    /* 舵机 PID 不做持久化，每次上电使用默认值 */
+    for (uint8_t m = 0; m < PARAM_MODE_COUNT; m++) {
+        g_modeParams[m].servoKp        = s_defaultParams.servoKp;
+        g_modeParams[m].servoKi        = s_defaultParams.servoKi;
+        g_modeParams[m].servoKd        = s_defaultParams.servoKd;
+        g_modeParams[m].servoOutMax    = s_defaultParams.servoOutMax;
+        g_modeParams[m].servoIMax      = s_defaultParams.servoIMax;
+        g_modeParams[m].servoDeadband  = s_defaultParams.servoDeadband;
+        g_modeParams[m].servoBaseAngle = s_defaultParams.servoBaseAngle;
+    }
 }
 
 void Param_SaveAll(void)
@@ -166,6 +179,8 @@ void Param_ApplyMode(uint8_t mode)
     Track_SetOutMax(p->trackOutMax);
     Track_SetIMax(p->trackIMax);
     Track_SetBaseSpeed(p->trackBaseSpeed);
+
+    /* 注：speedBaseSpeed 由模式任务在 START 时通过 SpeedControl_SetTargets 使用 */
 
     /* 应用角度环 PID 参数到运行时结构体 */
     AngleServo_ApplyParams(p);

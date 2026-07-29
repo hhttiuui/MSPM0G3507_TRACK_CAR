@@ -25,6 +25,8 @@ typedef struct {
     float   trackOutMax;
     float   trackIMax;
     int16_t trackBaseSpeed;
+    int16_t speedBaseSpeed;     /* 速度环基准目标（脉冲/20ms） */
+    int16_t stopDistance;       /* 定距停止目标编码器脉冲数（仅 MODE1） */
 
     /* 角度环 PID（舵机） */
     float   servoKp;
