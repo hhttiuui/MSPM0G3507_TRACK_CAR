@@ -1,0 +1,22 @@
+# CCS Theia 编译产物
+Debug/
+
+# VS Code
+.vscode/
+
+# 编译临时文件
+*.o
+*.d
+*.out
+*.map
+*.hex
+*.bin
+
+# CCS 工程文件（自动生成）
+*.ccsproject
+*.cproject
+*.project
+.settings/
+
+# TI SysConfig 备份
+*.syscfg.bak
