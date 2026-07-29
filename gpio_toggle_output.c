@@ -21,9 +21,10 @@
 #include "ttop_funtion.h"
 #include "track.h"
 #include "param_storage.h"
-#include "si24r1.h"
+//#include "si24r1.h"   /* 无线模块暂时禁用 */
 #include "buzzer.h"
 #include "servo.h"
+#include "angle_servo_bridge.h"
 
 /* ==================== 主程序状态 ==================== */
 
@@ -31,8 +32,9 @@
 volatile uint8_t gRxByte = 0;
 volatile bool gDataReceived = false;
 
-/* NR02 2.4G 接收数据（供菜单调试页显示） */
-volatile uint8_t g_nr02RxData = 0;
+/* NR02 2.4G 接收数据（暂时禁用） */
+//volatile uint8_t g_nr02RxData = 0;
+volatile uint8_t g_nr02RxData = 0;  /* 菜单引用，保留变量 */
 
 static uint8_t sched_tick = 0;
 static bool speed_sample_ready = false;
@@ -48,7 +50,8 @@ static void App_ProcessTrackUart(void)
     }
 }
 
-/* 2.4G 无线接收简单处理（后续可扩展） */
+/* 2.4G 无线接收（暂时禁用） */
+/*
 static uint8_t s_nr02_buf[32];
 
 static void App_ProcessNR02(void)
@@ -57,6 +60,7 @@ static void App_ProcessNR02(void)
         g_nr02RxData = s_nr02_buf[0];
     }
 }
+*/
 
 /* ==================== 中断与周期调度 ==================== */
 
@@ -78,6 +82,7 @@ void TIMER_0_INST_IRQHandler(void)
                         speed_sample_ready = true;
                     }
                     Read_IMU660RB();
+                    AngleServo_Update(euler.angle.pitch);
                     VehicleYaw_Update5ms(angular_rate_mdps[1]);
                     break;
 
@@ -151,18 +156,19 @@ int main(void)
     Encoder_Start();
     OLED_Init();
     IMU660RB_Init();
+    AngleServo_Init();
     VehicleYaw_Init();
     HeadingControl_Init();
     Track_Init();
 
     Menu_Init();
     Param_Init();
-    RF_RX_Init();
+    //RF_RX_Init();   /* 无线模块暂时禁用 */
     Buzzer_Init();
 
     while (1) {
         App_ProcessTrackUart();
-        App_ProcessNR02();
+        //App_ProcessNR02();   /* 无线模块暂时禁用 */
         Buzzer_Task();
         Menu_HandleKeys();
         Menu_Draw();

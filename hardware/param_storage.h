@@ -12,7 +12,7 @@
 
 #define PARAM_MODE_COUNT    (4U)
 
-/* 每套参数结构（11 × uint32_t = 44 字节） */
+/* 每套参数结构（22 × uint32_t = 88 字节） */
 typedef struct {
     float   speedKp;
     float   speedKi;
@@ -30,7 +30,16 @@ typedef struct {
     int16_t entryEnable;      /* 直角入口等待使能（0=关闭, 1=开启） */
     int16_t entryThreshold;   /* 入口等待编码器增量阈值（默认 200） */
     int16_t stopAfterTurns;   /* 运行 x 个直角后停止（0=不限制） */
-} ModeParams;  /* 11 × uint32_t = 44 字节 */
+
+    /* 角度环 PID（舵机） */
+    float   servoKp;
+    float   servoKi;
+    float   servoKd;
+    float   servoOutMax;      /* PID 修正量上限 (°) */
+    float   servoIMax;        /* 积分饱和限 */
+    float   servoDeadband;    /* 死区 (°) */
+    float   servoBaseAngle;   /* 舵机基准角 (默认 90°) */
+} ModeParams;  /* 22 × uint32_t = 88 字节 */
 
 /* 全部 4 套参数 */
 extern ModeParams g_modeParams[PARAM_MODE_COUNT];

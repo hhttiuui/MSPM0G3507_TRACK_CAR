@@ -73,6 +73,7 @@ static const char *PidGroup_Name(PidGroup g)
     switch (g) {
         case PID_GROUP_TRACK: return "TRACK";
         case PID_GROUP_SPEED: return "SPEED";
+        case PID_GROUP_SERVO: return "SERVO";
         default:              return "?    ";
     }
 }
@@ -85,6 +86,7 @@ static const char *PidField_Name(PidField f)
         case PID_FIELD_KD:       return "KD    ";
         case PID_FIELD_OUT_MX:   return "OUT_MX";
         case PID_FIELD_I_MX:     return "I_MX  ";
+        case PID_FIELD_DBAND:    return "DBAND ";
         case PID_FIELD_TURN_SPD: return "TURN_S";
         case PID_FIELD_BASE_SPD: return "BASE_S";
         default:                 return "?     ";
@@ -108,13 +110,22 @@ static float Pid_GetValue(PidGroup g, PidField f)
             case PID_FIELD_OUT_MX: return p->trackOutMax;
             case PID_FIELD_I_MX:   return p->trackIMax;
         }
-    } else {
+    } else if (g == PID_GROUP_SPEED) {
         switch (f) {
             case PID_FIELD_KP:     return p->speedKp;
             case PID_FIELD_KI:     return p->speedKi;
             case PID_FIELD_KD:     return p->speedKd;
             case PID_FIELD_OUT_MX: return (float)p->speedOutLimit;
             case PID_FIELD_I_MX:   return (float)p->speedOutLimit;
+        }
+    } else { /* PID_GROUP_SERVO */
+        switch (f) {
+            case PID_FIELD_KP:     return p->servoKp;
+            case PID_FIELD_KI:     return p->servoKi;
+            case PID_FIELD_KD:     return p->servoKd;
+            case PID_FIELD_OUT_MX: return p->servoOutMax;
+            case PID_FIELD_I_MX:   return p->servoIMax;
+            case PID_FIELD_DBAND:  return p->servoDeadband;
         }
     }
     return 0.0f;
@@ -141,13 +152,22 @@ static void Pid_SetValue(PidGroup g, PidField f, float v)
             case PID_FIELD_OUT_MX: if (v > 0.0f) { p->trackOutMax = v; } break;
             case PID_FIELD_I_MX:   if (v > 0.0f) { p->trackIMax = v; } break;
         }
-    } else {
+    } else if (g == PID_GROUP_SPEED) {
         switch (f) {
             case PID_FIELD_KP:     if (v >= 0.0f) p->speedKp = v; break;
             case PID_FIELD_KI:     if (v >= 0.0f) p->speedKi = v; break;
             case PID_FIELD_KD:     if (v >= 0.0f) p->speedKd = v; break;
             case PID_FIELD_OUT_MX: if (v > 0.0f && v <= 1000.0f) p->speedOutLimit = (int16_t)v; break;
             case PID_FIELD_I_MX:   if (v > 0.0f && v <= 1000.0f) p->speedOutLimit = (int16_t)v; break;
+        }
+    } else { /* PID_GROUP_SERVO */
+        switch (f) {
+            case PID_FIELD_KP:     if (v >= 0.0f) p->servoKp = v; break;
+            case PID_FIELD_KI:     if (v >= 0.0f) p->servoKi = v; break;
+            case PID_FIELD_KD:     if (v >= 0.0f) p->servoKd = v; break;
+            case PID_FIELD_OUT_MX: if (v >= 0.0f && v <= 45.0f) p->servoOutMax = v; break;
+            case PID_FIELD_I_MX:   if (v >= 0.0f && v <= 45.0f) p->servoIMax = v; break;
+            case PID_FIELD_DBAND:  if (v >= 0.0f && v <= 10.0f) p->servoDeadband = v; break;
         }
     }
 }
@@ -221,9 +241,15 @@ static void DrawModeConfig(void)
     uint8_t i;
     uint8_t groupCount = 0U;
 
+    /* MODE1：SERVO_PID 角度环 */
     /* MODE2：TRACK_PID / SPEED_PID / TURN_S / ENTRY / E_THR / TURNS */
-    if (g_menuMode == 2U) {
+    /* MODE3/4：SERVO_PID / TRACK_PID / SPEED_PID 全部 */
+    if (g_menuMode == 1U) {
+        groupCount = 1U;
+    } else if (g_menuMode == 2U) {
         groupCount = 6U;
+    } else if (g_menuMode == 3U || g_menuMode == 4U) {
+        groupCount = 3U;
     }
 
     sprintf(s_buf, "M%d_CFG", (int)g_menuMode);
@@ -236,13 +262,29 @@ static void DrawModeConfig(void)
             uint8_t row = i + 1U;
             ModeParams *p = &g_modeParams[g_menuMode - 1U];
 
-            if (i == 0U) {
-                /* TRACK_PID */
-                sprintf(s_buf, "%cTRACK_PID", (s_cursor == row) ? '>' : ' ');
-            } else if (i == 1U) {
-                /* SPEED_PID */
-                sprintf(s_buf, "%cSPEED_PID", (s_cursor == row) ? '>' : ' ');
-            } else if (i == 2U) {
+            if (g_menuMode == 1U) {
+                /* MODE1: 仅 SERVO_PID */
+                if (i == 0U) {
+                    sprintf(s_buf, "%cSERVO_PID", (s_cursor == row) ? '>' : ' ');
+                }
+            } else if (g_menuMode == 3U || g_menuMode == 4U) {
+                /* MODE3/4: SERVO / TRACK / SPEED 三个 PID 组 */
+                if (i == 0U) {
+                    sprintf(s_buf, "%cSERVO_PID", (s_cursor == row) ? '>' : ' ');
+                } else if (i == 1U) {
+                    sprintf(s_buf, "%cTRACK_PID", (s_cursor == row) ? '>' : ' ');
+                } else if (i == 2U) {
+                    sprintf(s_buf, "%cSPEED_PID", (s_cursor == row) ? '>' : ' ');
+                }
+            } else {
+                /* MODE2 各项 */
+                if (i == 0U) {
+                    /* TRACK_PID */
+                    sprintf(s_buf, "%cTRACK_PID", (s_cursor == row) ? '>' : ' ');
+                } else if (i == 1U) {
+                    /* SPEED_PID */
+                    sprintf(s_buf, "%cSPEED_PID", (s_cursor == row) ? '>' : ' ');
+                } else if (i == 2U) {
                 /* TURN_S:xx 可直接编辑 */
                 uint8_t editing = (s_cursor == row && s_pidState == PID_STATE_EDIT) ? 1U : 0U;
                 float spd = (float)p->trackTurnSpeed;
@@ -269,6 +311,7 @@ static void DrawModeConfig(void)
                             (int)TrackSquare_GetTurnCount());
                 }
             }
+            }  /* end of MODE2 else */
             OLED_ShowString(0, row, (uint8_t *)s_buf, OLED_FONT_H);
         }
     }
@@ -410,10 +453,16 @@ static void DrawPidEdit(void)
     uint8_t i, row;
     const char *title = PidGroup_Name(s_pidGroup);
     char cursorCh = (s_pidState == PID_STATE_EDIT) ? '-' : '>';
-    /* TRACK 页: KP..I_MX (5字段); SPEED 页: KP..BASE_SPD (跳过I_MX和TURN_S) */
-    uint8_t maxField = (s_pidGroup == PID_GROUP_TRACK)
-                       ? (uint8_t)PID_FIELD_I_MX
-                       : (uint8_t)PID_FIELD_COUNT;
+    /* TRACK 页: KP..I_MX (5字段); SPEED 页: KP..BASE_SPD (跳过I_MX和TURN_S);
+       SERVO 页: KP..DBAND (6字段) */
+    uint8_t maxField;
+    if (s_pidGroup == PID_GROUP_TRACK) {
+        maxField = (uint8_t)PID_FIELD_I_MX;
+    } else if (s_pidGroup == PID_GROUP_SERVO) {
+        maxField = (uint8_t)PID_FIELD_DBAND;
+    } else {
+        maxField = (uint8_t)PID_FIELD_COUNT;
+    }
 
     /* Row 0: 标题 */
     sprintf(s_buf, "%s_PID", title);
@@ -421,9 +470,10 @@ static void DrawPidEdit(void)
 
     row = 1U;
     for (i = 1U; i <= maxField; i++) {
-        /* SPEED 页跳过 I_MX 和 TURN_S */
+        /* SPEED/SERVO 页跳过不适用字段 */
         if (s_pidGroup != PID_GROUP_TRACK &&
-            ((PidField)i == PID_FIELD_I_MX || (PidField)i == PID_FIELD_TURN_SPD)) {
+            ((PidField)i == PID_FIELD_I_MX || (PidField)i == PID_FIELD_TURN_SPD ||
+             (PidField)i == PID_FIELD_BASE_SPD)) {
             continue;
         }
         const char *name = PidField_Name((PidField)i);
@@ -476,7 +526,15 @@ static void Config_OnConfirm(void)
 
 static void ModeConfig_OnConfirm(void)
 {
-    s_pidGroup  = (s_cursor == 1U) ? PID_GROUP_TRACK : PID_GROUP_SPEED;
+    if (g_menuMode == 1U) {
+        s_pidGroup = PID_GROUP_SERVO;
+    } else if (g_menuMode == 3U || g_menuMode == 4U) {
+        if (s_cursor == 1U)      s_pidGroup = PID_GROUP_SERVO;
+        else if (s_cursor == 2U) s_pidGroup = PID_GROUP_TRACK;
+        else                     s_pidGroup = PID_GROUP_SPEED;
+    } else {
+        s_pidGroup  = (s_cursor == 1U) ? PID_GROUP_TRACK : PID_GROUP_SPEED;
+    }
     s_pidField  = PID_FIELD_KP;
     s_page      = PAGE_PID_EDIT;
     s_pidState  = PID_STATE_SEL;
@@ -659,21 +717,28 @@ void Menu_HandleKeys(void)
                     break;
                 }
 
-                /* 光标移动 */
-                if (key == KEY2_PRES) {
-                    if (s_cursor > 1U) s_cursor--; else s_cursor = 6U;
-                    OLED_Clear();
-                } else if (key == KEY4_PRES) {
-                    if (s_cursor < 6U) s_cursor++; else s_cursor = 1U;
-                    OLED_Clear();
-                } else if (key == KEY3_PRES) {
-                    /* 进入编辑态（TURN_S / E_THR / TURNS）或进入 PID 页面 */
-                    if (s_cursor == 3U || s_cursor == 5U || s_cursor == 6U) {
-                        s_pidState = PID_STATE_EDIT;
+                /* 光标移动（动态最大光标） */
+                {
+                    uint8_t maxCursor = 1U;
+                    if (g_menuMode == 2U)      maxCursor = 6U;
+                    else if (g_menuMode >= 3U) maxCursor = 3U;
+
+                    if (key == KEY2_PRES) {
+                        if (s_cursor > 1U) s_cursor--; else s_cursor = maxCursor;
                         OLED_Clear();
-                    } else {
-                        ModeConfig_OnConfirm();
+                    } else if (key == KEY4_PRES) {
+                        if (s_cursor < maxCursor) s_cursor++; else s_cursor = 1U;
                         OLED_Clear();
+                    } else if (key == KEY3_PRES) {
+                        /* 进入编辑态（仅 MODE2 的 TURN_S/E_THR/TURNS）或进入 PID 页面 */
+                        if (g_menuMode == 2U &&
+                            (s_cursor == 3U || s_cursor == 5U || s_cursor == 6U)) {
+                            s_pidState = PID_STATE_EDIT;
+                            OLED_Clear();
+                        } else {
+                            ModeConfig_OnConfirm();
+                            OLED_Clear();
+                        }
                     }
                 }
             }
@@ -779,18 +844,24 @@ void Menu_HandleKeys(void)
                         if (s_pidField > (PidField)1U)
                             s_pidField = (PidField)((uint8_t)s_pidField - 1U);
                         else s_pidField = (PidField)PID_FIELD_COUNT;
-                    } while (s_pidGroup != PID_GROUP_TRACK &&
-                             ((PidField)s_pidField == PID_FIELD_I_MX ||
-                              (PidField)s_pidField == PID_FIELD_TURN_SPD));
+                    } while ((s_pidGroup == PID_GROUP_SPEED &&
+                              ((PidField)s_pidField == PID_FIELD_I_MX ||
+                               (PidField)s_pidField == PID_FIELD_TURN_SPD)) ||
+                             (s_pidGroup == PID_GROUP_SERVO &&
+                              ((PidField)s_pidField == PID_FIELD_TURN_SPD ||
+                               (PidField)s_pidField == PID_FIELD_BASE_SPD)));
                     OLED_Clear();
                 } else if (key == KEY4_PRES) {
                     do {
                         if (s_pidField < (PidField)PID_FIELD_COUNT)
                             s_pidField = (PidField)((uint8_t)s_pidField + 1U);
                         else s_pidField = PID_FIELD_KP;
-                    } while (s_pidGroup != PID_GROUP_TRACK &&
-                             ((PidField)s_pidField == PID_FIELD_I_MX ||
-                              (PidField)s_pidField == PID_FIELD_TURN_SPD));
+                    } while ((s_pidGroup == PID_GROUP_SPEED &&
+                              ((PidField)s_pidField == PID_FIELD_I_MX ||
+                               (PidField)s_pidField == PID_FIELD_TURN_SPD)) ||
+                             (s_pidGroup == PID_GROUP_SERVO &&
+                              ((PidField)s_pidField == PID_FIELD_TURN_SPD ||
+                               (PidField)s_pidField == PID_FIELD_BASE_SPD)));
                     OLED_Clear();
                 } else if (key == KEY3_PRES) {
                     s_pidState = PID_STATE_EDIT;

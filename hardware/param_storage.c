@@ -15,6 +15,7 @@
 #include "eeprom_emulation_type_a.h"
 #include "speed_control.h"
 #include "track.h"
+#include "angle_servo_bridge.h"
 
 /* ---- 全局参数数组 ---- */
 ModeParams g_modeParams[PARAM_MODE_COUNT];
@@ -43,6 +44,14 @@ static const ModeParams s_defaultParams = {
     .entryEnable    = 0,        /* 默认关闭 */
     .entryThreshold = 200,      /* 默认 200 脉冲 */
     .stopAfterTurns = 0,        /* 0 = 不限制 */
+    /* 角度环 PID 默认值 */
+    .servoKp        = 2.0f,
+    .servoKi        = 0.1f,
+    .servoKd        = 0.05f,
+    .servoOutMax    = 5.0f,
+    .servoIMax      = 3.0f,
+    .servoDeadband  = 0.3f,
+    .servoBaseAngle = 90.0f,
 };
 
 /* ---- 简单 CRC16（多项式 0x8005） ---- */
@@ -161,4 +170,7 @@ void Param_ApplyMode(uint8_t mode)
     Track_SetOutMax(p->trackOutMax);
     Track_SetIMax(p->trackIMax);
     Track_SetBaseSpeed(p->trackBaseSpeed);
+
+    /* 应用角度环 PID 参数到运行时结构体 */
+    AngleServo_ApplyParams(p);
 }

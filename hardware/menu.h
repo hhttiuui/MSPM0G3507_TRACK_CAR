@@ -34,6 +34,7 @@ typedef enum {
 typedef enum {
     PID_GROUP_TRACK,        /* 循迹 PID */
     PID_GROUP_SPEED,        /* 速度环 PID */
+    PID_GROUP_SERVO,        /* 角度环 PID */
     PID_GROUP_COUNT,
 } PidGroup;
 
@@ -43,7 +44,10 @@ typedef enum {
     PID_FIELD_KI,
     PID_FIELD_KD,
     PID_FIELD_OUT_MX,
-    PID_FIELD_I_MX,    PID_FIELD_TURN_SPD,       /* 循迹转弯速度 */    PID_FIELD_BASE_SPD,       /* 仅 SPEED PID 生效 */
+    PID_FIELD_I_MX,
+    PID_FIELD_DBAND,           /* 死区（仅 SERVO PID 生效） */
+    PID_FIELD_TURN_SPD,        /* 循迹转弯速度 */
+    PID_FIELD_BASE_SPD,        /* 仅 SPEED PID 生效 */
     PID_FIELD_COUNT = PID_FIELD_BASE_SPD,
 } PidField;
 

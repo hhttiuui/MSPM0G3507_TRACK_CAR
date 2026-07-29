@@ -29,7 +29,6 @@
 
 #include "servo.h"              /* 本模块头文件 */
 #include "ti_msp_dl_config.h"   /* SysConfig 生成的硬件宏 (PWM_SERVO_INST 等) */
-#include "delay.h"              /* Delay_ms() 阻塞延时 */
 
 /* ================================================================
  *  脉宽常量（所有值单位: 0.25μs tick）
@@ -40,39 +39,18 @@
 
 
 /* ================================================================
- *  Servo_Init — 上电初始化 + 自检扫掠
+ *  Servo_Init — 上电初始化
  * ================================================================
  *
- *  调用时机: main() 中 SYSCFG_DL_init() 之后立即调用。
- *
- *  上电行为:
- *    0° ─1s─→ 90° ─1s─→ 180° ─1s─→ 90° ─1s─→ 0° (松弛)
- *
- *  注意: 此函数会阻塞约 4 秒。
+ *  调用时机: main() 中 SYSCFG_DL_init() 之后调用。
+ *  SysConfig 已完成 TIMG7 的 200Hz PWM 初始化，
+ *  本函数仅设置舵机到安全初始位置。
  */
 void Servo_Init(void)
 {
-    /*
-     * SysConfig 已完成的初始化（在 SYSCFG_DL_PWM_SERVO_init 中）:
-     *   ✅ 引脚复用:  PA28 → TIMG7 CCP0
-     *   ✅ 时钟配置:  32MHz ÷ 8 = 4MHz
-     *   ✅ PWM 模式:  边沿对齐递增计数
-     *   ✅ 周期设置:  20000 ticks → 200Hz
-     *   ✅ 定时器:    已启动
-     *
-     * 本函数无需重复配置，直接开始扫掠即可。
-     */
-
-    /* 扫掠序列: 依次走到各关键角度，验证舵机工作正常 */
-    Servo_SetAngle(0);      /* 左极限  500μs */
-    Delay_ms(1000);         /* 等待舵机到位 */
-    Servo_SetAngle(90);     /* 中点    1500μs */
-    Delay_ms(1000);
-    Servo_SetAngle(180);    /* 右极限  2500μs */
-    Delay_ms(1000);
-    Servo_SetAngle(90);     /* 回到中点 */
-    Delay_ms(1000);
-    Servo_SetAngle(0);      /* 回到起点，舵机松弛 */
+    /* 上电时舵机松弛，占空比 0，不施加力矩 */
+    DL_TimerG_setCaptureCompareValue(
+        PWM_SERVO_INST, 0, GPIO_PWM_SERVO_C0_IDX);
 }
 
 
