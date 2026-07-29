@@ -1,79 +1,152 @@
 /*
  *  servo.c  —— 舵机 PWM 驱动实现
+ *  ============================================================
  *
- *  TIMG7, PA28 (CCP0), 200Hz 舵机信号
+ *  【硬件资源】
+ *    定时器: TIMG7 (通用定时器 G7)
+ *    引脚:   PA28 (CCP0 通道输出)
+ *    时钟:   32MHz BUSCLK ÷ 8 预分频 = 4MHz
  *
- *  预分频 = 8 → 每 tick = 250ns
- *  周期   = 20000 ticks → 5000μs = 200Hz
- *  脉宽范围: 4000 (1000μs) ~ 8000 (2000μs)
- *  中点:     6000 (1500μs)
+ *  【PWM 参数】
+ *    频率:   200Hz (周期 = 5000μs = 20000 ticks)
+ *    精度:   每 tick = 0.25μs
  *
- *  时钟和周期由 SysConfig (gpio_toggle_output.syscfg) 统一管理，
- *  本模块不再重复配置定时器，避免与 SYSCFG_DL_PWM_SERVO_init() 冲突。
+ *  【舵机脉宽映射 (180° 舵机)】
+ *    PULSE_MIN    = 2000 ticks =  500μs →  0°
+ *    PULSE_CENTER = 6000 ticks = 1500μs → 90°
+ *    PULSE_MAX    =10000 ticks = 2500μs → 180°
+ *
+ *  【配置管理】
+ *    定时器初始化由 SysConfig 生成的 SYSCFG_DL_PWM_SERVO_init()
+ *    在 SYSCFG_DL_init() 中统一完成，本模块不重复配置，
+ *    仅负责运行时的脉宽控制。
+ *
+ *  【安全设计】
+ *    - 上电时 PWM 占空比为 0，舵机处于松弛状态
+ *    - Servo_SetAngle() / Servo_SetPulse() 输入自动限幅
+ *    - Servo_Stop() 可紧急切断 PWM 输出
  */
 
-#include "servo.h"
-#include "ti_msp_dl_config.h"
-#include "delay.h"
+#include "servo.h"              /* 本模块头文件 */
+#include "ti_msp_dl_config.h"   /* SysConfig 生成的硬件宏 (PWM_SERVO_INST 等) */
+#include "delay.h"              /* Delay_ms() 阻塞延时 */
 
-/* ---- 脉宽 tick 常量（预分频=8，每 tick=0.25μs）---- */
-#define PULSE_MIN    4000U   /* 1000μs */
-#define PULSE_MAX    8000U   /* 2000μs */
-#define PULSE_CENTER 6000U   /* 1500μs */
+/* ================================================================
+ *  脉宽常量（所有值单位: 0.25μs tick）
+ * ================================================================ */
+#define PULSE_MIN    2000U   /*  500μs — 舵机 0°  位置 */
+#define PULSE_MAX    10000U  /* 2500μs — 舵机 180° 位置 */
+#define PULSE_CENTER 6000U   /* 1500μs — 舵机 90° 中点 */
 
-/* ---- 公开 API ---- */
 
+/* ================================================================
+ *  Servo_Init — 上电初始化 + 自检扫掠
+ * ================================================================
+ *
+ *  调用时机: main() 中 SYSCFG_DL_init() 之后立即调用。
+ *
+ *  上电行为:
+ *    0° ─1s─→ 90° ─1s─→ 180° ─1s─→ 90° ─1s─→ 0° (松弛)
+ *
+ *  注意: 此函数会阻塞约 4 秒。
+ */
 void Servo_Init(void)
 {
     /*
-     * SYSCFG_DL_PWM_SERVO_init() 已在 SYSCFG_DL_init() 中完成：
-     *   - 引脚复用 (IOMUX): PA28 → TIMG7 CCP0
-     *   - 时钟配置: 32MHz ÷ 8 = 4MHz
-     *   - PWM 模式: 边沿对齐, 周期 20000 (200Hz)
-     *   - 定时器已启动
+     * SysConfig 已完成的初始化（在 SYSCFG_DL_PWM_SERVO_init 中）:
+     *   ✅ 引脚复用:  PA28 → TIMG7 CCP0
+     *   ✅ 时钟配置:  32MHz ÷ 8 = 4MHz
+     *   ✅ PWM 模式:  边沿对齐递增计数
+     *   ✅ 周期设置:  20000 ticks → 200Hz
+     *   ✅ 定时器:    已启动
      *
-     * 这里只需确保上电初始状态安全，然后执行自检扫掠。
+     * 本函数无需重复配置，直接开始扫掠即可。
      */
 
-    /* 上电自检扫掠: 0° → 90° → 180° → 90° → 0° */
-    Servo_SetAngle(0);
+    /* 扫掠序列: 依次走到各关键角度，验证舵机工作正常 */
+    Servo_SetAngle(0);      /* 左极限  500μs */
+    Delay_ms(1000);         /* 等待舵机到位 */
+    Servo_SetAngle(90);     /* 中点    1500μs */
     Delay_ms(1000);
-    Servo_SetAngle(90);
+    Servo_SetAngle(180);    /* 右极限  2500μs */
     Delay_ms(1000);
-    Servo_SetAngle(180);
+    Servo_SetAngle(90);     /* 回到中点 */
     Delay_ms(1000);
-    Servo_SetAngle(90);
-    Delay_ms(1000);
-    Servo_SetAngle(0);
+    Servo_SetAngle(0);      /* 回到起点，舵机松弛 */
 }
 
+
+/* ================================================================
+ *  Servo_SetAngle — 角度控制（主要用户接口）
+ * ================================================================
+ *
+ *  参数:  angle — 0~180°，自动限幅
+ *
+ *  映射公式:
+ *    pulse = PULSE_MIN + angle × (PULSE_MAX - PULSE_MIN) ÷ 180
+ *          = 2000      + angle × 8000 ÷ 180
+ *
+ *  示例:
+ *    0°  → pulse = 2000 ( 500μs)
+ *    45° → pulse = 4000 (1000μs)
+ *    90° → pulse = 6000 (1500μs)
+ *    135°→ pulse = 8000 (2000μs)
+ *    180°→ pulse =10000 (2500μs)
+ */
 void Servo_SetAngle(uint8_t angle)
 {
     uint16_t pulse;
 
+    /* 上限钳位: 超过 180° 按 180° 处理 */
     if (angle > 180U) {
         angle = 180U;
     }
 
-    /* 线性映射: angle [0, 180] → pulse [4000, 8000] */
-    pulse = PULSE_MIN + (uint16_t)(((uint32_t)angle * (PULSE_MAX - PULSE_MIN)) / 180U);
+    /* 线性插值: angle [0,180] → pulse [PULSE_MIN, PULSE_MAX] */
+    pulse = PULSE_MIN
+          + (uint16_t)(((uint32_t)angle * (PULSE_MAX - PULSE_MIN)) / 180U);
 
+    /* 写入硬件比较寄存器 */
     Servo_SetPulse(pulse);
 }
 
+
+/* ================================================================
+ *  Servo_SetPulse — 直接脉宽控制（高级接口）
+ * ================================================================
+ *
+ *  参数:  pulse — tick 值 (2000~10000)，自动限幅到安全范围
+ *
+ *  直接操作 TIMG7 的 CCP0 比较寄存器 (CCR0)。
+ *  计数器从 0 递增，当计数值 == CCR0 时输出翻转，
+ *  从而产生指定宽度的脉冲。
+ */
 void Servo_SetPulse(uint16_t pulse)
 {
+    /* 下限钳位: 防止脉宽过窄导致舵机抖动或失控 */
     if (pulse < PULSE_MIN) {
         pulse = PULSE_MIN;
     }
+    /* 上限钳位: 防止脉宽超过周期 (5000μs) */
     if (pulse > PULSE_MAX) {
         pulse = PULSE_MAX;
     }
 
+    /* 写入 CCP0 比较值，立即生效 (IMMEDIATE 更新模式) */
     DL_TimerG_setCaptureCompareValue(
-        PWM_SERVO_INST, (uint32_t)pulse, GPIO_PWM_SERVO_C0_IDX);
+        PWM_SERVO_INST,           /* TIMG7                          */
+        (uint32_t)pulse,          /* 比较值 (tick)                  */
+        GPIO_PWM_SERVO_C0_IDX);   /* CCP0 通道 (DL_TIMER_CC_0_INDEX) */
 }
 
+
+/* ================================================================
+ *  Servo_Stop — 紧急停止
+ * ================================================================
+ *
+ *  将 CCP0 比较值设为 0，PWM 输出常低，舵机完全松弛（无力矩）。
+ *  适用于: 紧急停机、节能待机、切换控制模式前。
+ */
 void Servo_Stop(void)
 {
     DL_TimerG_setCaptureCompareValue(

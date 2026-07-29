@@ -1,14 +1,21 @@
 /*
  *  servo.h  —— 舵机 PWM 驱动（TIMG7 CCP0, PA28）
+ *  ============================================================
  *
- *  参数：
- *    频率: 300Hz (周期 3333μs)
- *    脉宽范围: 1000μs ~ 2000μs
- *    中点: 1500μs (对应 90°)
+ *  【硬件】
+ *    定时器: TIMG7      引脚: PA28 (CCP0)
+ *    时钟:   32MHz ÷ 8 = 4MHz (每 tick = 0.25μs)
  *
- *  时钟配置：
- *    TIMG7, BUSCLK=32MHz, 预分频=8 → 4MHz tick
- *    周期 = 13333 ticks, 脉宽 4000~8000 ticks
+ *  【PWM 信号】
+ *    频率:   200Hz (周期 5000μs = 20000 ticks)
+ *
+ *  【舵机角度 → 脉宽映射 (180° 舵机)】
+ *      0° →  500μs (2000 ticks)
+ *     90° → 1500μs (6000 ticks)  ← 中点
+ *    180° → 2500μs (10000 ticks)
+ *
+ *  【SysConfig 配置 (gpio_toggle_output.syscfg)】
+ *    PWM_SERVO: clockPrescale=8, timerCount=20000, CCP0=PA28
  */
 
 #ifndef __SERVO_H
@@ -16,23 +23,39 @@
 
 #include <stdint.h>
 
-/* ---- 角度范围 ---- */
-#define SERVO_ANGLE_MIN     0
-#define SERVO_ANGLE_MAX     180
-#define SERVO_ANGLE_CENTER  90
+/* ---- 角度常量 ---- */
+#define SERVO_ANGLE_MIN     0    /* 最小角度 */
+#define SERVO_ANGLE_MAX     180  /* 最大角度 */
+#define SERVO_ANGLE_CENTER  90   /* 中点角度 */
 
-/* ---- API ---- */
+/* ================================================================
+ *  API 函数
+ * ================================================================ */
 
-/* 初始化（SYSCFG_DL_PWM_SERVO_init 已自动设置定时器，此处设置初始占空比） */
+/*
+ * 上电初始化，执行自检扫掠: 0°→90°→180°→90°→0°
+ * 调用时机: main() 中 SYSCFG_DL_init() 之后
+ * 注意: 此函数阻塞约 4 秒
+ */
 void Servo_Init(void);
 
-/* 设置角度 0~180°，内部自动限幅，线性映射到 1000~2000μs */
+/*
+ * 设置舵机角度
+ *   angle: 0~180°，超限自动钳位
+ *   内部线性映射: angle → 500~2500μs 脉宽
+ */
 void Servo_SetAngle(uint8_t angle);
 
-/* 直接设置脉宽 tick 值（4000~8000，每个 tick=0.25μs），内部自动限幅 */
+/*
+ * 直接设置脉宽（高级接口）
+ *   pulse: 2000~10000 (单位: 0.25μs tick)，超限自动钳位
+ *   2000=500μs, 6000=1500μs, 10000=2500μs
+ */
 void Servo_SetPulse(uint16_t pulse);
 
-/* 停止 PWM 输出（0% 占空比，舵机松弛） */
+/*
+ * 紧急停止: PWM 输出常低，舵机完全松弛
+ */
 void Servo_Stop(void);
 
 #endif /* __SERVO_H */
