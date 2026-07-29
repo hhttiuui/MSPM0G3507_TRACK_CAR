@@ -34,7 +34,7 @@ const TIMER    = scripting.addModule("/ti/driverlib/TIMER", {}, false);
 const TIMER1   = TIMER.addInstance();
 const UART     = scripting.addModule("/ti/driverlib/UART", {}, false);
 const UART1    = UART.addInstance();
-const UART2    = UART.addInstance();
+const UART2    = UART.addInstance(); 
 
 /**
  * Write custom configuration values to the imported modules.
