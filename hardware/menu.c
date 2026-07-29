@@ -581,12 +581,12 @@ void Menu_HandleKeys(void)
     k3_last = k3_now;
     k4_last = k4_now;
 
-    /* ===== 组合键：KEY2(上) + KEY4(下) 同时按下 → 保存参数 ===== */
+    /* ===== 组合键：KEY2(上) + KEY4(下) 同时按下 — 保存功能已暂删 ===== */
     if (k2_now && k4_now) {
         if (!s_comboLatched) {
             s_comboLatched = 1U;
-            Param_SaveAll();
-            s_saveOkFrames = 15U;  /* 保持约 15 帧（~250ms） */
+            /* Param_SaveAll();  — 保存功能暂时删除 */
+            /* s_saveOkFrames = 15U; */
         }
         k1_last = k1_now;  k2_last = k2_now;
         k3_last = k3_now;  k4_last = k4_now;

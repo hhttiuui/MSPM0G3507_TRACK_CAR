@@ -127,6 +127,17 @@ void Param_Init(void)
     for (uint8_t m = 0; m < PARAM_MODE_COUNT; m++) {
         UnpackParams(&g_modeParams[m], &buf[1 + m * PARAM_U32_PER_MODE]);
     }
+
+    /* 舵机 PID 不做持久化，每次上电使用默认值 */
+    for (uint8_t m = 0; m < PARAM_MODE_COUNT; m++) {
+        g_modeParams[m].servoKp        = s_defaultParams.servoKp;
+        g_modeParams[m].servoKi        = s_defaultParams.servoKi;
+        g_modeParams[m].servoKd        = s_defaultParams.servoKd;
+        g_modeParams[m].servoOutMax    = s_defaultParams.servoOutMax;
+        g_modeParams[m].servoIMax      = s_defaultParams.servoIMax;
+        g_modeParams[m].servoDeadband  = s_defaultParams.servoDeadband;
+        g_modeParams[m].servoBaseAngle = s_defaultParams.servoBaseAngle;
+    }
 }
 
 void Param_SaveAll(void)
