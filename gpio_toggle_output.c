@@ -30,6 +30,11 @@
 volatile uint8_t gRxByte = 0;
 volatile bool gDataReceived = false;
 
+/* UART_1 (PB3=RX) 数据包：AA XH XL FF */
+volatile uint16_t g_xData = 0;
+static uint8_t s_uart1Buf[4];
+static uint8_t s_uart1Idx = 0;
+
 static uint8_t sched_tick = 0;
 static bool speed_sample_ready = false;
 
@@ -42,6 +47,23 @@ static void App_ProcessTrackUart(void)
         gDataReceived = false;
         DL_UART_Main_transmitDataBlocking(UART_0_INST, gRxByte);
     }
+}
+
+/* UART_1 每 100ms 发送一次数据 */
+static unsigned long s_lastTxTick = 0;
+
+static void App_ProcessUart1Tx(void)
+{
+    if (tick_ms - s_lastTxTick < 100UL) {
+        return;
+    }
+    s_lastTxTick = tick_ms;
+
+    /* 发送 4 字节：AA XH XL FF */
+    DL_UART_Main_transmitDataBlocking(UART_1_INST, 0xAAU);
+    DL_UART_Main_transmitDataBlocking(UART_1_INST, (uint8_t)(g_xData >> 8));
+    DL_UART_Main_transmitDataBlocking(UART_1_INST, (uint8_t)(g_xData & 0xFF));
+    DL_UART_Main_transmitDataBlocking(UART_1_INST, 0xFFU);
 }
 
 /* ==================== 中断与周期调度 ==================== */
@@ -117,6 +139,36 @@ void UART_0_INST_IRQHandler(void)
     }
 }
 
+/* UART_1 数据包解析：AA XH XL FF */
+void UART_1_INST_IRQHandler(void)
+{
+    switch (DL_UART_Main_getPendingInterrupt(UART_1_INST)) {
+        case DL_UART_MAIN_IIDX_RX: {
+            uint8_t byte = DL_UART_Main_receiveData(UART_1_INST);
+            if (byte == 0xAAU) {
+                s_uart1Idx = 1;
+                s_uart1Buf[0] = byte;
+            } else if (s_uart1Idx == 1U) {
+                s_uart1Buf[1] = byte;   /* XH */
+                s_uart1Idx = 2;
+            } else if (s_uart1Idx == 2U) {
+                s_uart1Buf[2] = byte;   /* XL */
+                s_uart1Idx = 3;
+            } else if (s_uart1Idx == 3U) {
+                if (byte == 0xFFU) {
+                    g_xData = ((uint16_t)s_uart1Buf[1] << 8) | s_uart1Buf[2];
+                }
+                s_uart1Idx = 0;
+            } else {
+                s_uart1Idx = 0;
+            }
+            break;
+        }
+        default:
+            break;
+    }
+}
+
 /* ==================== 初始化与主循环 ==================== */
 
 int main(void)
@@ -129,25 +181,29 @@ int main(void)
      * 正式速度环上电后保持停止。
      * 后续菜单或 IMU 外环通过 SetTargets、Start、Stop 接口控制。
      */
+    NVIC_EnableIRQ(TIMER_0_INST_INT_IRQN);
+
     SpeedControl_Init();
 
     NVIC_EnableIRQ(UART_0_INST_INT_IRQN);
-    NVIC_EnableIRQ(TIMER_0_INST_INT_IRQN);
+    /* NVIC_EnableIRQ(UART_1_INST_INT_IRQN); -- 串口1 已关闭 */
 
-    Key_Init();
     Encoder_Start();
-    OLED_Init();
     IMU660RB_Init();
     AngleServo_Init();
     VehicleYaw_Init();
     HeadingControl_Init();
     Track_Init();
-
-    Menu_Init();
     Param_Init();
+
+    Key_Init();
+    OLED_Init();
+    OLED_Clear();
+    Menu_Init();
 
     while (1) {
         App_ProcessTrackUart();
+        /* App_ProcessUart1Tx(); -- 串口1 已关闭 */
         Menu_HandleKeys();
         Menu_Draw();
     }

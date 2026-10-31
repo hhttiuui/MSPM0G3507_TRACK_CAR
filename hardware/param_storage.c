@@ -42,6 +42,9 @@ static const ModeParams s_defaultParams = {
     .trackBaseSpeed = 12,
     .speedBaseSpeed = 18,
     .stopDistance   = 12300,
+    .stopDistance2  = 0,
+    .softRampTime   = 100,
+    .softStopDist   = 2000,
     /* 角度环 PID 默认值 */
     .servoKp        = 2.0f,
     .servoKi        = 0.1f,
@@ -93,7 +96,27 @@ static void Param_SetDefaults(void)
     for (uint8_t m = 0; m < PARAM_MODE_COUNT; m++) {
         g_modeParams[m] = s_defaultParams;
     }
-    g_modeParams[1].stopDistance = 2700;   /* MODE2 定距停止默认 2700 */
+    /* MODE1 默认值覆盖 */
+    g_modeParams[0].trackBaseSpeed = 8;
+    g_modeParams[0].stopDistance   = 11500;
+    g_modeParams[0].softRampTime   = 400;
+    g_modeParams[0].softStopDist   = 0;
+    /* MODE2 */
+    g_modeParams[1].trackBaseSpeed = 15;
+    g_modeParams[1].stopDistance   = 2680;
+    g_modeParams[1].softRampTime   = 450;
+    g_modeParams[1].softStopDist   = 300;
+    /* MODE3 定距停止默认 */
+    g_modeParams[2].stopDistance   = 11535;
+    /* MODE4 = MODE1 移植，取消软停 */
+    g_modeParams[3] = g_modeParams[0];
+    g_modeParams[3].softStopDist   = 0;
+    g_modeParams[3].stopDistance2  = 16000;
+    /* MODE5 = MODE2 移植，取消软停 */
+    g_modeParams[4] = g_modeParams[1];
+    g_modeParams[4].trackBaseSpeed = 12;
+    g_modeParams[4].softStopDist   = 0;
+    g_modeParams[4].stopDistance2  = 5000;
 }
 
 /* ---- 公开 API ---- */

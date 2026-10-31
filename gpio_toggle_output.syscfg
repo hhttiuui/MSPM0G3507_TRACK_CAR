@@ -1,9 +1,9 @@
 /**
  * These arguments were used when this file was generated. They will be automatically applied on subsequent loads
  * via the GUI or CLI. Run CLI with '--help' for additional information on how to override these arguments.
- * @cliArgs --device "MSPM0G350X" --part "Default" --package "LQFP-64(PM)" --product "mspm0_sdk@2.09.00.00"
- * @v2CliArgs --device "MSPM0G3507" --package "LQFP-64(PM)" --product "mspm0_sdk@2.09.00.00"
- * @versions {"tool":"1.26.0+4407"}
+ * @cliArgs --device "MSPM0G350X" --part "Default" --package "LQFP-64(PM)" --product "mspm0_sdk@2.10.00.04"
+ * @v2CliArgs --device "MSPM0G3507" --package "LQFP-64(PM)" --product "mspm0_sdk@2.10.00.04"
+ * @versions {"tool":"1.27.0+4565"}
  */
 
 /**
@@ -12,6 +12,7 @@
 const CAPTURE  = scripting.addModule("/ti/driverlib/CAPTURE", {}, false);
 const CAPTURE1 = CAPTURE.addInstance();
 const CAPTURE2 = CAPTURE.addInstance();
+const DMA      = scripting.addModule("/ti/driverlib/DMA");
 const GPIO     = scripting.addModule("/ti/driverlib/GPIO", {}, false);
 const GPIO1    = GPIO.addInstance();
 const GPIO2    = GPIO.addInstance();
@@ -34,7 +35,7 @@ const TIMER    = scripting.addModule("/ti/driverlib/TIMER", {}, false);
 const TIMER1   = TIMER.addInstance();
 const UART     = scripting.addModule("/ti/driverlib/UART", {}, false);
 const UART1    = UART.addInstance();
-const UART2    = UART.addInstance(); 
+const UART2    = UART.addInstance();
 
 /**
  * Write custom configuration values to the imported modules.
@@ -230,6 +231,7 @@ UART1.txPinConfig.$name        = "ti_driverlib_gpio_GPIOPinGeneric2";
 UART1.rxPinConfig.$name        = "ti_driverlib_gpio_GPIOPinGeneric3";
 
 UART2.$name                    = "UART_1";
+UART2.targetBaudRate           = 115200;
 UART2.peripheral.rxPin.$assign = "PB3";
 UART2.peripheral.txPin.$assign = "PB2";
 UART2.txPinConfig.$name        = "ti_driverlib_gpio_GPIOPinGeneric13";

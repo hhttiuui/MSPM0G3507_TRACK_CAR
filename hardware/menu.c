@@ -17,6 +17,7 @@
 #include "track.h"
 #include "param_storage.h"
 #include "buzzer.h"
+#include "servo.h"
 #include <stdio.h>
 
 /* ---- 全局标志位定义 ---- */
@@ -24,6 +25,7 @@ volatile uint8_t g_menuMode       = 1U;
 volatile uint8_t g_menuStartFlag  = 0U;
 volatile uint8_t g_menuResetFlag  = 0U;
 volatile uint8_t g_gyroOk         = 1U;  /* 上电时默认可为 OK，由菜单 RESET 触发清零 */
+volatile uint8_t g_timerFrozen     = 0U;  /* MODE4/5 第一停止点触发 */
 
 /* ---- 循迹串口字节（引用自主程序） ---- */
 extern volatile uint8_t gRxByte;
@@ -36,12 +38,22 @@ static volatile PidGroup     s_pidGroup   = PID_GROUP_SPEED;
 static volatile PidField     s_pidField   = PID_FIELD_KP;
 static volatile PidEditState s_pidState   = PID_STATE_SEL;
 
+/* UART_1 串口数据（gpio_toggle_output.c 中定义） */
+extern volatile uint16_t g_xData;
+
 /* 保存成功提示帧计时（>0 时在 row 0 末尾显示 SAVE_OK） */
 static volatile uint8_t s_saveOkFrames = 0U;
 
 /* OTHERS 调试：开关状态 */
-static volatile uint8_t s_magnetOn  = 0U;
-static volatile uint8_t s_ledOn     = 0U;
+static volatile uint8_t s_magnetOn   = 0U;
+static volatile uint8_t s_ledOn      = 0U;
+static volatile uint8_t s_servoAngle = 90U;  /* 舵机角度 0~180 */
+
+/* 运行计时 */
+extern volatile unsigned long tick_ms;
+static volatile unsigned long s_runTimerStart   = 0U;
+static volatile unsigned long s_runTimerFrozen  = 0U;
+static volatile uint8_t       s_runTimerStopped = 0U;
 
 
 /* OLED 8x8 字体，每行 16 字符，共 8 行（0~7） */
@@ -176,6 +188,7 @@ static const char *Mode_Name(uint8_t m)
         case 2U: return "MODE2";
         case 3U: return "MODE3";
         case 4U: return "MODE4";
+        case 5U: return "MODE5";
         default: return "MODE?";
     }
 }
@@ -221,11 +234,11 @@ static void DrawMain(void)
 static void DrawConfig(void)
 {
     uint8_t i;
-    const char *items[5] = {"MODE1", "MODE2", "MODE3", "MODE4", "OTHERS"};
+    const char *items[6] = {"MODE1", "MODE2", "MODE3", "MODE4", "MODE5", "OTHERS"};
 
     OLED_ShowString(0, 0, (uint8_t *)"CONFIG", OLED_FONT_H);
 
-    for (i = 1U; i <= 5U; i++) {
+    for (i = 1U; i <= 6U; i++) {
         sprintf(s_buf, "%c%s", (s_cursor == i) ? '>' : ' ', items[i - 1U]);
         OLED_ShowString(0, i, (uint8_t *)s_buf, OLED_FONT_H);
     }
@@ -236,20 +249,41 @@ static void DrawConfig(void)
 static void DrawModeConfig(void)
 {
     uint8_t i;
-    uint8_t itemCount = (g_menuMode <= 2U) ? 4U : 3U;
-    const char *items[4] = {"SERVO_PID", "TRACK_PID", "SPEED_PID", "STOP_DIST"};
+    uint8_t itemCount;
+    if (g_menuMode <= 2U) itemCount = 6U;
+    else if (g_menuMode == 3U) itemCount = 4U;
+    else if (g_menuMode <= 5U) itemCount = 6U;
+    else itemCount = 3U;
+    const char *items[6] = {"SERVO_PID", "TRACK_PID", "SPEED_PID",
+                            "STOP_DIST", "SOFT_START", "STOP_DIST2"};
 
     sprintf(s_buf, "M%d_CFG", (int)g_menuMode);
     OLED_ShowString(0, 0, (uint8_t *)s_buf, OLED_FONT_H);
 
     for (i = 0U; i < itemCount; i++) {
         uint8_t row = i + 1U;
-        if (g_menuMode <= 2U && i == 3U) {
-            /* MODE1 第 4 行：STOP_DIST:xxxxx */
+        if (i >= 3U && g_menuMode != 4U && g_menuMode != 5U) {
             ModeParams *p = &g_modeParams[g_menuMode - 1U];
             uint8_t editing = (s_cursor == row && s_pidState == PID_STATE_EDIT) ? 1U : 0U;
             char cur = editing ? '-' : ((s_cursor == row) ? '>' : ' ');
-            sprintf(s_buf, "%cSTOP_DIST:%5d", cur, (int)p->stopDistance);
+            if (i == 3U) {
+                sprintf(s_buf, "%cSTOP_DIST:%5d", cur, (int)p->stopDistance);
+            } else if (i == 4U) {
+                sprintf(s_buf, "%cSOFT_START:%4d", cur, (int)p->softRampTime);
+            } else {
+                sprintf(s_buf, "%cSOFT_STOP:%5d", cur, (int)p->softStopDist);
+            }
+        } else if (i >= 3U && (g_menuMode == 4U || g_menuMode == 5U)) {
+            ModeParams *p = &g_modeParams[g_menuMode - 1U];
+            uint8_t editing = (s_cursor == row && s_pidState == PID_STATE_EDIT) ? 1U : 0U;
+            char cur = editing ? '-' : ((s_cursor == row) ? '>' : ' ');
+            if (i == 3U) {
+                sprintf(s_buf, "%cSTOP_DIST:%5d", cur, (int)p->stopDistance);
+            } else if (i == 4U) {
+                sprintf(s_buf, "%cSOFT_START:%4d", cur, (int)p->softRampTime);
+            } else {
+                sprintf(s_buf, "%cSTOP_DIST2:%4d", cur, (int)p->stopDistance2);
+            }
         } else {
             sprintf(s_buf, "%c%s", (s_cursor == row) ? '>' : ' ', items[i]);
         }
@@ -265,7 +299,7 @@ static void DrawMode(void)
 
     OLED_ShowString(0, 0, (uint8_t *)"MODE", OLED_FONT_H);
 
-    for (i = 1U; i <= 4U; i++) {
+    for (i = 1U; i <= 5U; i++) {
         sprintf(s_buf, "%c%s", (s_cursor == i) ? '>' : ' ', Mode_Name(i));
         OLED_ShowString(0, i, (uint8_t *)s_buf, OLED_FONT_H);
     }
@@ -352,7 +386,84 @@ static void DrawOthers(void)
             s_ledOn ? "ON " : "OFF");
     OLED_ShowString(0, 2, (uint8_t *)s_buf, OLED_FONT_H);
 
+    /* Row 3: SERVO_SET:xxx° */
+    sprintf(s_buf, "%cSERVO_SET:%3d°",
+            (s_cursor == 3U) ? '>' : ' ',
+            (int)s_servoAngle);
+    OLED_ShowString(0, 3, (uint8_t *)s_buf, OLED_FONT_H);
+
+    /* Row 4: X_DATA:xxxxx（UART_1 接收） */
+    sprintf(s_buf, "  X_DATA: %5d", (int)g_xData);
+    OLED_ShowString(0, 4, (uint8_t *)s_buf, OLED_FONT_H);
+
     OLED_ShowString(0, 7, (uint8_t *)"MADE_BY->hhttiuui", OLED_FONT_H);
+}
+
+/* ── 标准 6×8 字体缩放为大号 BMP（8×48） ── */
+#include "oledfont.h"
+
+static void DrawLargeChar(uint8_t x, uint8_t y, char ch)
+{
+    uint8_t bmp[144];  /* 18 cols × 8 pages = 64px 高 */
+    const uint8_t *src;
+
+    if (ch == ':') {
+        for (int i = 0; i < 144; i++) bmp[i] = 0x00;
+        /* 冒号：两竖列方块，cols 3-7，page 2-3 和 page 4-5 */
+        for (int c = 3; c <= 7; c++) {
+            bmp[2*18 + c] = 0xFF; bmp[3*18 + c] = 0xFF;
+            bmp[4*18 + c] = 0xFF; bmp[5*18 + c] = 0xFF;
+        }
+    } else {
+        src = &asc2_0806[ch - 0x20][0];
+        for (int col = 0; col < 18; col++) {
+            uint8_t fontCol = src[col / 3];  /* 每 font 列 → 3 输出列 */
+            for (int pg = 0; pg < 8; pg++) {
+                bmp[pg * 18 + col] = (fontCol & (1 << pg)) ? 0xFF : 0x00;
+            }
+        }
+    }
+    OLED_DrawBMP(x, y, 18, 64, bmp);
+}
+
+static void DrawRunTimer(void)
+{
+    unsigned long elapsed;
+    char buf[6];
+
+    if (s_runTimerStopped) {
+        elapsed = s_runTimerFrozen;
+    } else if (g_timerFrozen) {
+        /* MODE4/5 第一停止点：计时冻结但车继续跑 */
+        if (s_runTimerFrozen == 0U) s_runTimerFrozen = tick_ms - s_runTimerStart;
+        s_runTimerStopped = 1U;
+        elapsed = s_runTimerFrozen;
+    } else if (!g_menuStartFlag && s_runTimerStart != 0U) {
+        s_runTimerFrozen  = tick_ms - s_runTimerStart;
+        s_runTimerStopped = 1U;
+        elapsed = s_runTimerFrozen;
+    } else {
+        elapsed = tick_ms - s_runTimerStart;
+    }
+
+    uint32_t totalMs   = elapsed;
+    uint8_t  seconds   = (uint8_t)(totalMs / 1000U);
+    uint8_t  centisec  = (uint8_t)((totalMs % 1000U) / 10U);
+    buf[0] = (char)('0' + (seconds / 10U));
+    buf[1] = (char)('0' + (seconds % 10U));
+    buf[2] = ':';
+    buf[3] = (char)('0' + (centisec / 10U));
+    buf[4] = (char)('0' + (centisec % 10U));
+    buf[5] = '\0';
+
+    uint8_t x = 19U;  /* 居中：(128 - (18×4 + 8 + 2×4)) / 2 = 19 */
+    for (int i = 0; i < 5; i++) {
+        DrawLargeChar(x, 0U, buf[i]);
+        if (buf[i] == ':')
+            x += 10U;
+        else
+            x += 20U;  /* 18px + 2px 间距 */
+    }
 }
 
 static void DrawPidEdit(void)
@@ -364,7 +475,7 @@ static void DrawPidEdit(void)
        SERVO 页: KP..DBAND (6字段) */
     uint8_t maxField;
     if (s_pidGroup == PID_GROUP_TRACK) {
-        maxField = (uint8_t)PID_FIELD_I_MX;
+        maxField = (uint8_t)PID_FIELD_BASE_SPD;
     } else if (s_pidGroup == PID_GROUP_SERVO) {
         maxField = (uint8_t)PID_FIELD_DBAND;
     } else {
@@ -379,8 +490,7 @@ static void DrawPidEdit(void)
     for (i = 1U; i <= maxField; i++) {
         /* 跳过不适用字段：TRACK 跳过 DBAND/BASE_SPD；SPEED 跳过 I_MX/DBAND/TURN_S；SERVO 跳过 I_MX/BASE_SPD */
         if (s_pidGroup == PID_GROUP_TRACK) {
-            if ((PidField)i == PID_FIELD_DBAND ||
-                (PidField)i == PID_FIELD_BASE_SPD) {
+            if ((PidField)i == PID_FIELD_DBAND) {
                 continue;
             }
         } else if (s_pidGroup == PID_GROUP_SPEED) {
@@ -418,15 +528,22 @@ static void Main_OnConfirm(void)
         case 1U: s_page = PAGE_CONFIG;     s_cursor = 1U; break;
         case 2U: s_page = PAGE_DATA_SHOW;  s_cursor = 1U; s_dataPage = 0U; break;
         case 3U: s_page = PAGE_MODE;       s_cursor = 1U; break;
-        case 4U: g_menuStartFlag = 1U; g_menuResetFlag = 0U; break;
-        case 5U: g_menuResetFlag = 1U; g_menuStartFlag = 0U; g_gyroOk = 0U; break;
+        case 4U:
+            g_menuStartFlag = 1U; g_menuResetFlag = 0U;
+            g_timerFrozen    = 0U;
+            s_runTimerStart   = tick_ms;
+            s_runTimerStopped = 0U;
+            s_runTimerFrozen  = 0U;
+            s_page = PAGE_RUN_TIMER;
+            break;
+        case 5U: g_menuResetFlag = 1U; g_menuStartFlag = 0U; g_gyroOk = 0U; g_timerFrozen = 0U; break;
         default: break;
     }
 }
 
 static void Config_OnConfirm(void)
 {
-    if (s_cursor <= 4U) {
+    if (s_cursor <= 5U) {
         g_menuMode = s_cursor;
         s_page     = PAGE_MODE_CONFIG;
         s_cursor   = 1U;
@@ -515,7 +632,9 @@ void Menu_HandleKeys(void)
         } else if (s_page == PAGE_MODE_CONFIG) {
             s_page = PAGE_CONFIG;       s_cursor = g_menuMode;
         } else if (s_page == PAGE_OTHERS) {
-            s_page = PAGE_CONFIG;       s_cursor = 5U;
+            s_page = PAGE_CONFIG;       s_cursor = 6U;
+        } else if (s_page == PAGE_RUN_TIMER) {
+            s_page = PAGE_MAIN;         s_cursor = 1U;
         } else {
             s_page = PAGE_MAIN;         s_cursor = 1U;
         }
@@ -541,10 +660,10 @@ void Menu_HandleKeys(void)
 
         case PAGE_CONFIG:
             if (key == KEY2_PRES) {
-                if (s_cursor > 1U) s_cursor--; else s_cursor = 5U;
+                if (s_cursor > 1U) s_cursor--; else s_cursor = 6U;
                 OLED_Clear();
             } else if (key == KEY4_PRES) {
-                if (s_cursor < 5U) s_cursor++; else s_cursor = 1U;
+                if (s_cursor < 6U) s_cursor++; else s_cursor = 1U;
                 OLED_Clear();
             } else if (key == KEY3_PRES) {
                 Config_OnConfirm();
@@ -554,28 +673,54 @@ void Menu_HandleKeys(void)
 
         case PAGE_MODE_CONFIG:
             {
-                uint8_t maxCursor = (g_menuMode <= 2U) ? 4U : 3U;
+                uint8_t maxCursor;
+                if (g_menuMode <= 2U) maxCursor = 6U;
+                else if (g_menuMode == 3U) maxCursor = 4U;
+                else if (g_menuMode <= 5U) maxCursor = 6U;
+                else maxCursor = 3U;
 
-                /* MODE1 第 4 行 STOP_DIST 编辑态 */
-                if (g_menuMode <= 2U && s_cursor == 4U && s_pidState == PID_STATE_EDIT) {
-                    uint8_t k2_long = Key_ReadLongPress(KEY_ID_2);
-                    uint8_t k4_long = Key_ReadLongPress(KEY_ID_4);
-                    ModeParams *p = &g_modeParams[g_menuMode - 1U];
-                    if (key == KEY2_PRES || (k2_long && k2_now)) {
-                        int16_t step = (k2_long && k2_now) ? 100 : 1;
-                        if (p->stopDistance <= 65535 - step) p->stopDistance += step;
-                        else p->stopDistance = 65535;
-                        OLED_Clear();
-                    } else if (key == KEY4_PRES || (k4_long && k4_now)) {
-                        int16_t step = (k4_long && k4_now) ? 100 : 1;
-                        if (p->stopDistance > step) p->stopDistance -= step;
-                        else p->stopDistance = 1;
-                        OLED_Clear();
-                    } else if (key == KEY3_PRES || key == KEY1_PRES) {
-                        s_pidState = PID_STATE_SEL;
-                        OLED_Clear();
+                /* 内联编辑态（STOP_DIST / SOFT_START / SOFT_STOP） */
+                if (s_pidState == PID_STATE_EDIT) {
+                    uint8_t hasField = (g_menuMode <= 2U && s_cursor >= 4U) ||
+                                       (g_menuMode == 3U && s_cursor == 4U) ||
+                                       ((g_menuMode == 4U || g_menuMode == 5U) && s_cursor >= 4U);
+                    if (hasField) {
+                        ModeParams *p = &g_modeParams[g_menuMode - 1U];
+                        int16_t *field = NULL;
+                        int32_t stepShort = 1, stepLong = 100;
+                        int32_t minVal = 0, maxVal = 32767;
+                        if (s_cursor == 4U) {
+                            field = &p->stopDistance; stepShort = 1; stepLong = 100; minVal = 1;
+                        } else if (s_cursor == 5U) {
+                            field = &p->softRampTime; stepShort = 10; stepLong = 100; maxVal = 500;
+                        } else if (s_cursor == 6U) {
+                            if (g_menuMode <= 2U) {
+                                field = &p->softStopDist; stepShort = 100; stepLong = 500;
+                            } else {
+                                field = &p->stopDistance2; stepShort = 1; stepLong = 100; minVal = 1;
+                            }
+                        }
+
+                        if (field) {
+                            uint8_t k2_long = Key_ReadLongPress(KEY_ID_2);
+                            uint8_t k4_long = Key_ReadLongPress(KEY_ID_4);
+                            int32_t step = (k2_long || k4_long) ? stepLong : stepShort;
+
+                            if (key == KEY2_PRES || (k2_long && k2_now)) {
+                                if ((int32_t)*field <= maxVal - step) *field = (int16_t)(*field + step);
+                                else *field = (int16_t)maxVal;
+                                OLED_Clear();
+                            } else if (key == KEY4_PRES || (k4_long && k4_now)) {
+                                if ((int32_t)*field >= minVal + step) *field = (int16_t)(*field - step);
+                                else *field = (int16_t)minVal;
+                                OLED_Clear();
+                            } else if (key == KEY3_PRES || key == KEY1_PRES) {
+                                s_pidState = PID_STATE_SEL;
+                                OLED_Clear();
+                            }
+                        }
+                        break;
                     }
-                    break;
                 }
 
                 if (key == KEY2_PRES) {
@@ -585,7 +730,9 @@ void Menu_HandleKeys(void)
                     if (s_cursor < maxCursor) s_cursor++; else s_cursor = 1U;
                     OLED_Clear();
                 } else if (key == KEY3_PRES) {
-                    if (g_menuMode <= 2U && s_cursor == 4U) {
+                    if ((g_menuMode <= 2U && s_cursor >= 4U) ||
+                        (g_menuMode == 3U && s_cursor == 4U) ||
+                        ((g_menuMode == 4U || g_menuMode == 5U) && s_cursor >= 4U)) {
                         s_pidState = PID_STATE_EDIT;
                         OLED_Clear();
                     } else {
@@ -598,10 +745,10 @@ void Menu_HandleKeys(void)
 
         case PAGE_MODE:
             if (key == KEY2_PRES) {
-                if (s_cursor > 1U) s_cursor--; else s_cursor = 4U;
+                if (s_cursor > 1U) s_cursor--; else s_cursor = 5U;
                 OLED_Clear();
             } else if (key == KEY4_PRES) {
-                if (s_cursor < 4U) s_cursor++; else s_cursor = 1U;
+                if (s_cursor < 5U) s_cursor++; else s_cursor = 1U;
                 OLED_Clear();
             } else if (key == KEY3_PRES) {
                 Mode_OnConfirm();
@@ -617,14 +764,33 @@ void Menu_HandleKeys(void)
             break;
 
         case PAGE_OTHERS:
+            /* SERVO_SET 调节（光标在第 3 行时 KEY2/KEY4 调整角度） */
+            if (s_cursor == 3U) {
+                uint8_t k2_long = Key_ReadLongPress(KEY_ID_2);
+                uint8_t k4_long = Key_ReadLongPress(KEY_ID_4);
+                uint8_t step = (k2_long || k4_long) ? 50 : 1;
+                if (key == KEY2_PRES || (k2_long && k2_now)) {
+                    if (s_servoAngle <= 180 - step) s_servoAngle += step;
+                    else s_servoAngle = 180;
+                    Servo_SetAngle(s_servoAngle);
+                    OLED_Clear();
+                } else if (key == KEY4_PRES || (k4_long && k4_now)) {
+                    if (s_servoAngle >= step) s_servoAngle -= step;
+                    else s_servoAngle = 0;
+                    Servo_SetAngle(s_servoAngle);
+                    OLED_Clear();
+                }
+                /* SERVO_SET 行不支持 KEY3 切换 — 直接调控 */
+                break;
+            }
+
             if (key == KEY2_PRES) {
-                if (s_cursor > 1U) s_cursor--; else s_cursor = 2U;
+                if (s_cursor > 1U) s_cursor--; else s_cursor = 3U;
                 OLED_Clear();
             } else if (key == KEY4_PRES) {
-                if (s_cursor < 2U) s_cursor++; else s_cursor = 1U;
+                if (s_cursor < 3U) s_cursor++; else s_cursor = 1U;
                 OLED_Clear();
             } else if (key == KEY3_PRES) {
-                /* 切换当前选中项 */
                 if (s_cursor == 1U) {
                     s_magnetOn = s_magnetOn ? 0U : 1U;
                     if (s_magnetOn) Magnet_On(); else Magnet_Off();
@@ -643,7 +809,9 @@ void Menu_HandleKeys(void)
                         if (s_pidField > (PidField)1U)
                             s_pidField = (PidField)((uint8_t)s_pidField - 1U);
                         else s_pidField = (PidField)PID_FIELD_COUNT;
-                    } while ((s_pidGroup == PID_GROUP_SPEED &&
+                    } while ((s_pidGroup == PID_GROUP_TRACK &&
+                              (PidField)s_pidField == PID_FIELD_DBAND) ||
+                             (s_pidGroup == PID_GROUP_SPEED &&
                               (PidField)s_pidField == PID_FIELD_I_MX) ||
                              (s_pidGroup == PID_GROUP_SERVO &&
                               (PidField)s_pidField == PID_FIELD_BASE_SPD));
@@ -653,7 +821,9 @@ void Menu_HandleKeys(void)
                         if (s_pidField < (PidField)PID_FIELD_COUNT)
                             s_pidField = (PidField)((uint8_t)s_pidField + 1U);
                         else s_pidField = PID_FIELD_KP;
-                    } while ((s_pidGroup == PID_GROUP_SPEED &&
+                    } while ((s_pidGroup == PID_GROUP_TRACK &&
+                              (PidField)s_pidField == PID_FIELD_DBAND) ||
+                             (s_pidGroup == PID_GROUP_SPEED &&
                               (PidField)s_pidField == PID_FIELD_I_MX) ||
                              (s_pidGroup == PID_GROUP_SERVO &&
                               (PidField)s_pidField == PID_FIELD_BASE_SPD));
@@ -704,6 +874,7 @@ void Menu_Draw(void)
         case PAGE_MODE:        DrawMode();       break;
         case PAGE_DATA_SHOW:   DrawDataShow();   break;
         case PAGE_OTHERS:      DrawOthers();     break;
+        case PAGE_RUN_TIMER:   DrawRunTimer();   break;
         case PAGE_PID_EDIT:    DrawPidEdit();    break;
     }
 

@@ -10,7 +10,7 @@
 
 #include <stdint.h>
 
-#define PARAM_MODE_COUNT    (4U)
+#define PARAM_MODE_COUNT    (5U)
 
 /* 每套参数结构（22 × uint32_t = 88 字节） */
 typedef struct {
@@ -26,7 +26,10 @@ typedef struct {
     float   trackIMax;
     int16_t trackBaseSpeed;
     int16_t speedBaseSpeed;     /* 速度环基准目标（脉冲/20ms） */
-    int16_t stopDistance;       /* 定距停止目标编码器脉冲数（仅 MODE1） */
+    int16_t stopDistance;       /* 定距停止目标编码器脉冲数（仅 MODE1/2） */
+    int16_t stopDistance2;      /* 第二停止点（MODE4/5 用），0=关闭 */
+    int16_t softRampTime;       /* 缓启动时间（10ms单位），0=关闭 */
+    int16_t softStopDist;       /* 缓停减速区间（编码器脉冲），0=关闭 */
 
     /* 角度环 PID（舵机） */
     float   servoKp;

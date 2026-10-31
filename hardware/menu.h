@@ -26,7 +26,8 @@ typedef enum {
     PAGE_DATA_SHOW,
     PAGE_MODE_CONFIG,       /* 某 mode 的 PID 组选择 */
     PAGE_PID_EDIT,          /* PID 参数编辑页（选/编 状态机） */
-    PAGE_OTHERS,            /* 磁铁 / LED 调试 */
+    PAGE_OTHERS,            /* 磁铁 / LED / 舵机 / 串口 */
+    PAGE_RUN_TIMER,         /* 运行计时画面 */
 } MenuPage;
 
 /* ---- PID 组（用于 MODE_CONFIG 页） ---- */
@@ -61,6 +62,7 @@ extern volatile uint8_t g_menuStartFlag;   /* 启动标志 */
 extern volatile uint8_t g_menuResetFlag;   /* 复位标志 */
 
 extern volatile uint8_t g_gyroOk;           /* 陀螺仪初始化完成标志 */
+extern volatile uint8_t g_timerFrozen;       /* MODE4/5 计时冻结标志 */
 
 /* ---- 菜单公开 API ---- */
 void Menu_Init(void);

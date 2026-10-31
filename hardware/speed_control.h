@@ -40,11 +40,20 @@ void SpeedControl_SetDifferentialTargetOffsetFloat(float offset);
 /* 至少一侧目标非零时启动，启动成功返回 true。 */
 bool SpeedControl_Start(void);
 
+/*
+ * 软启动：目标速度从 0 在 rampTime10ms×10ms 内线性上升到 target。
+ * 内部自动调用 Start。
+ */
+void SpeedControl_SoftStart(int32_t target, uint16_t rampTime10ms);
+
 /* 立即停止四个电机并清除 PID 历史状态。 */
 void SpeedControl_Stop(void);
 
 /* 返回速度环当前是否处于运行状态。 */
 bool SpeedControl_IsRunning(void);
+
+/* 返回是否正在软启动中。 */
+bool SpeedControl_IsSoftStarting(void);
 
 /* 每获得一组新的 20ms 编码器数据时调用一次。 */
 void SpeedControl_Update20ms(int32_t leftActual, int32_t rightActual);

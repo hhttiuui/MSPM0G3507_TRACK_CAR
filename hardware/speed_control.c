@@ -1,6 +1,7 @@
 #include "speed_control.h"
 
 #include "motor.h"
+#include "clock.h"
 #include "speed_control_config.h"
 
 /*
@@ -31,6 +32,12 @@ static volatile float s_leftControlTarget;
 static volatile float s_rightControlTarget;
 static volatile float s_differentialTargetOffset;
 static volatile bool s_running;
+
+/* ── 软启动状态 ── */
+static volatile uint8_t       s_softStarting   = 0U;
+static volatile unsigned long s_ssTick         = 0U;
+static volatile uint16_t      s_ssRampTime     = 0U;
+static volatile int32_t       s_ssFullTarget   = 0;
 
 /* ==================== 基础工具函数 ==================== */
 
@@ -281,18 +288,45 @@ bool SpeedControl_Start(void)
     s_running = false;
     SpeedControl_StopOutputs();
     s_running = true;
+    s_softStarting = 0U;
     return true;
+}
+
+void SpeedControl_SoftStart(int32_t target, uint16_t rampTime10ms)
+{
+    s_leftTarget  = target;
+    s_rightTarget = target;
+    s_differentialTargetOffset = 0.0f;
+
+    if (rampTime10ms == 0U || target == 0) {
+        /* 无 ramp 时走普通 Start */
+        SpeedControl_Start();
+        return;
+    }
+
+    s_ssFullTarget = target;
+    s_ssRampTime   = rampTime10ms;
+    s_ssTick       = tick_ms;
+
+    s_running      = true;
+    s_softStarting = 1U;
 }
 
 void SpeedControl_Stop(void)
 {
     s_running = false;
+    s_softStarting = 0U;
     SpeedControl_StopOutputs();
 }
 
 bool SpeedControl_IsRunning(void)
 {
     return s_running;
+}
+
+bool SpeedControl_IsSoftStarting(void)
+{
+    return (s_softStarting != 0U);
 }
 
 void SpeedControl_Update20ms(int32_t leftActual, int32_t rightActual)
@@ -310,17 +344,45 @@ void SpeedControl_Update20ms(int32_t leftActual, int32_t rightActual)
         return;
     }
 
-    SpeedControl_GetEffectiveTargets(
-        &leftEffectiveTarget, &rightEffectiveTarget);
-    s_leftControlTarget = SpeedControl_MoveToward(
-        s_leftControlTarget, leftEffectiveTarget, (float)SPEED_TARGET_STEP);
-    s_rightControlTarget = SpeedControl_MoveToward(
-        s_rightControlTarget, rightEffectiveTarget, (float)SPEED_TARGET_STEP);
+    /* ── 软启动：时间驱动的目标斜坡 ── */
+    if (s_softStarting) {
+        uint32_t elapsed = tick_ms - s_ssTick;
+        uint32_t rampMax = (uint32_t)s_ssRampTime * 10U;
+        float frac;
+        if (elapsed >= rampMax || rampMax == 0U) {
+            frac = 1.0f;
+            s_softStarting = 0U;
+        } else {
+            frac = (float)elapsed / (float)rampMax;
+        }
 
-    if (leftEffectiveTarget == 0.0f && rightEffectiveTarget == 0.0f &&
-        s_leftControlTarget == 0.0f && s_rightControlTarget == 0.0f) {
-        SpeedControl_Stop();
-        return;
+        float tgt = (float)((s_ssFullTarget >= 0) ? s_ssFullTarget
+                                                   : -s_ssFullTarget) * frac;
+        if (tgt < (float)SPEED_RAMP_MIN_START && s_ssFullTarget != 0) {
+            tgt = (float)SPEED_RAMP_MIN_START;
+        }
+        if (s_ssFullTarget < 0) {
+            tgt = -tgt;
+        }
+
+        s_leftControlTarget  = tgt;
+        s_rightControlTarget = tgt;
+    } else {
+        /* ── 正常运行：GetEffectiveTargets + MoveToward ── */
+        SpeedControl_GetEffectiveTargets(
+            &leftEffectiveTarget, &rightEffectiveTarget);
+        s_leftControlTarget = SpeedControl_MoveToward(
+            s_leftControlTarget, leftEffectiveTarget,
+            (float)SPEED_TARGET_STEP);
+        s_rightControlTarget = SpeedControl_MoveToward(
+            s_rightControlTarget, rightEffectiveTarget,
+            (float)SPEED_TARGET_STEP);
+
+        if (leftEffectiveTarget == 0.0f && rightEffectiveTarget == 0.0f &&
+            s_leftControlTarget == 0.0f && s_rightControlTarget == 0.0f) {
+            SpeedControl_Stop();
+            return;
+        }
     }
 
     leftFeedforward =

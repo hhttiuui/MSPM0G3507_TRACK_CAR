@@ -15,5 +15,6 @@ void Mode1_Task(void);
 void Mode2_Task(void);
 void Mode3_Task(void);
 void Mode4_Task(void);
+void Mode5_Task(void);
 
 #endif /* __TTOP_FUNTION_H */
