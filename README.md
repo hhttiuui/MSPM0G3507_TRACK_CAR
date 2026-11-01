@@ -17,6 +17,8 @@ IMU660RB ──SPI──▶ Fusion AHRS ──▶ pitch / yaw
                           SSD1306 OLED 菜单 + 4 键
 ```
 
+![电赛赛道上的四轮循迹小车](docs/images/car-on-track.jpg)
+
 ## 硬件平台
 
 | 项目 | 说明 |
@@ -54,6 +56,8 @@ while (1) {
 
 按键 `Key_Update1ms()` 每 1 ms 采样消抖。`SysTick_Handler` 只维护 `tick_ms` 计时。
 
+![K230 图传画面：俯视车的循迹阵列](docs/images/camera-feed.jpg)
+
 ## 五种运行模式
 
 菜单里选 `MODE1`~`MODE5`，`START` 启动，`RESET` 急停并重置 AHRS：
@@ -68,6 +72,8 @@ while (1) {
 
 MODE2 的转弯判据：左/右侧三个传感器中 **≥2 个**检测到黑线即进入转弯；
 中心两个传感器同时检测到黑线即退出转弯。
+
+![OLED 菜单：SERVO_PID / TRACK_PID / SPEED_PID 参数页](docs/images/oled-menu.jpg)
 
 ## 四轮速度控制
 
