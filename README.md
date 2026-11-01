@@ -181,7 +181,7 @@ targetConfigs/                调试器配置
 命令行方式：
 
 ```powershell
-C:\ti\ccs2041\ccs\utils\bin\gmake.exe -C Debug -j 16 all
+C:\ti\ccs2050\ccs\utils\bin\gmake.exe -C Debug -j 16 all
 ```
 
 首次编译会自动生成 `Debug/`，不用管。
